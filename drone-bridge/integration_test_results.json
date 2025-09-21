@@ -1,0 +1,27 @@
+{
+  "backend_health": true,
+  "drone_health": {
+    "DRONE-001": true,
+    "DRONE-002": false
+  },
+  "backend_drone_comm": {
+    "DRONE-001": false,
+    "DRONE-002": false
+  },
+  "drone_commands": {
+    "DRONE-001": {
+      "takeoff": false,
+      "land": false,
+      "rtl": false,
+      "emergency": false
+    }
+  },
+  "weather_integration": {
+    "DRONE-001": false,
+    "DRONE-002": false
+  },
+  "battery_integration": {
+    "DRONE-001": false,
+    "DRONE-002": false
+  }
+}

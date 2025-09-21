@@ -1,0 +1,157 @@
+now give me full guide to run application  with simulation and test like a starter book 
+
+import React from "react";
+import axios from "axios";
+
+// The API is running on the same Windows machine as the React app
+const API_BASE = "http://127.0.0.1:5001";
+
+const DroneControl = () => {
+  const handleConnect = async () => {
+    try {
+      const response = await axios.post(`${API_BASE}/connect`);
+      alert(response.data.message);
+    } catch (error) {
+      console.error("Error connecting drone:", error);
+      alert("Failed to connect: " + (error.response?.data?.message || error.message));
+    }
+  };
+
+  const handleTakeoff = async () => {
+    try {
+      // You can change the value of 'alt' here
+      const takeoffAltitude = 20; 
+      const response = await axios.post(
+        `${API_BASE}/takeoff`,
+        { alt: takeoffAltitude },
+        { headers: { "Content-Type": "application/json" } }
+      );
+      alert(response.data.message);
+    } catch (error) {
+      console.error("Error during takeoff:", error);
+      alert("Takeoff failed: " + (error.response?.data?.message || error.message));
+    }
+  };
+
+  const handleLand = async () => {
+    try {
+      const response = await axios.post(`${API_BASE}/land`);
+      alert(response.data.message);
+    } catch (error) {
+      console.error("Error during landing:", error);
+      alert("Land command failed: " + (error.response?.data?.message || error.message));
+    }
+  };
+
+  return (
+    <div style={{ padding: "20px", fontFamily: "sans-serif" }}>
+      <h2>Drone Control Dashboard</h2>
+      <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
+        <button onClick={handleConnect}>Connect</button>
+        <button onClick={handleTakeoff}>Takeoff to 20m</button>
+        <button onClick={handleLand}>Land</button>
+      </div>
+    </div>
+  );
+};
+
+export default DroneControl;
+
+
+from flask import Flask, jsonify, request
+import asyncio
+from flask_cors import CORS
+import threading
+from mavsdk import System
+
+# --- Flask App Initialization ---
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
+# --- Global Drone Object and Asyncio Loop ---
+drone = System()
+background_loop = None
+
+def run_async_action(async_func):
+    """
+    Submits an async function to the running background loop
+    and waits for its result.
+    """
+    future = asyncio.run_coroutine_threadsafe(async_func, background_loop)
+    return future.result()
+
+# --- Async MAVSDK Functions ---
+async def connect_drone_async():
+    # This is the IP of your Ubuntu/WSL machine
+    ubuntu_ip = "172.17.176.1"
+    print(f"Connecting to vehicle on: udpin://{ubuntu_ip}:14540")
+    # Use the explicit udpout format for connecting out to a remote IP
+    await drone.connect(system_address=f"udpin://{ubuntu_ip}:14540")
+    
+    print("Waiting for drone to connect...")
+    async for state in drone.core.connection_state():
+        if state.is_connected:
+            print(f"-- Connected to drone!")
+            return
+
+async def takeoff_async(altitude):
+    """ Takes off to a specific altitude passed from the frontend """
+    print("-- Arming")
+    await drone.action.arm()
+    
+    print(f"-- Setting Takeoff Altitude to {altitude}m")
+    await drone.action.set_takeoff_altitude(altitude)
+    
+    print("-- Taking off")
+    await drone.action.takeoff()
+
+async def land_async():
+    print("-- Landing")
+    await drone.action.land()
+
+
+# --- Flask API Routes ---
+@app.route('/connect', methods=['POST'])
+def connect_drone_route():
+    try:
+        is_connected = run_async_action(drone.core.connection_state().__anext__()).is_connected
+        if is_connected:
+            return jsonify({"status": "success", "message": "Vehicle is connected"})
+        else:
+            return jsonify({"status": "error", "message": "Vehicle is not connected"}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/takeoff', methods=['POST'])
+def takeoff_route():
+    try:
+        data = request.get_json()
+        altitude = data.get('alt', 10.0) # Get altitude from request, default to 10
+        run_async_action(takeoff_async(altitude))
+        return jsonify({"status": "success", "message": f"Takeoff initiated to {altitude}m"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/land', methods=['POST'])
+def land_route():
+    try:
+        run_async_action(land_async())
+        return jsonify({"status": "success", "message": "Landing initiated"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+def start_background_loop(loop):
+    """ Starts the asyncio event loop in the background thread """
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+# --- Main Execution ---
+if __name__ == '__main__':
+    background_loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=start_background_loop, args=(background_loop,), daemon=True)
+    thread.start()
+
+    print("Running initial drone connection in background...")
+    run_async_action(connect_drone_async())
+
+    app.run(host='0.0.0.0', port=5001)
