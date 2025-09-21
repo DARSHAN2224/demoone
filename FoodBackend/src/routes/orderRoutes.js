@@ -30,8 +30,11 @@ router.patch('/:orderId/status', verifyJWT, updateOrderStatus);
 // Cancel order
 router.post('/:orderId/cancel', verifyJWT, cancelOrder);
 
-// Get order tracking information
+// Get order tracking information (authenticated)
 router.get('/:orderId/tracking', verifyJWT, getOrderTracking);
+
+// Public order tracking (for tracking page without login)
+router.get('/track/:orderId', getOrderTracking);
 
 // ==================== SELLER ORDER ROUTES ====================
 // Seller routes for managing their shop orders

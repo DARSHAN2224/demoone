@@ -180,21 +180,29 @@ export const useAuthStore = create(
           // Clear any existing authentication data before login to prevent "Already authenticated" error
           console.log('🔍 login: Clearing existing auth data before login');
           
-          // Clear any existing cookies
-          const cookieOptions = [
-            "accessToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/",
-            "refreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/",
-            "userRole=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/",
-            "deviceId=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/"
-          ];
+          // Clear any existing cookies more comprehensively
+          const cookieNames = ['accessToken', 'refreshToken', 'userRole', 'deviceId', '_csrf', 'lastLoginAttempt'];
+          const domains = [window.location.hostname, 'localhost', '127.0.0.1'];
+          const paths = ['/', '/api', '/admin', '/seller', '/users'];
           
-          cookieOptions.forEach(cookie => {
-            document.cookie = cookie;
-            // Also try with domain-specific clearing
-            document.cookie = cookie + "; domain=" + window.location.hostname;
+          cookieNames.forEach(cookieName => {
+            domains.forEach(domain => {
+              paths.forEach(path => {
+                // Try different combinations to ensure cookies are cleared
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=${path}`;
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=${path}; domain=${domain}`;
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=${path}; domain=.${domain}`;
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=${path}; domain=.${domain}; secure`;
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=${path}; domain=.${domain}; secure; samesite=strict`;
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=${path}; domain=.${domain}; secure; samesite=lax`;
+              });
+            });
           });
           
           console.log('🔍 login: All authentication data cleared');
+          
+          // Add a small delay to ensure cookies are cleared
+          await new Promise(resolve => setTimeout(resolve, 100));
           
           const deviceId = get().getDeviceId();
           let endpoint = "/users/login";

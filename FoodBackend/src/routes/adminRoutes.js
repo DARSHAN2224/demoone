@@ -26,7 +26,11 @@ import {
     createDrone,
     getDroneConfig,
     getTestingModeStatus,
-    toggleTestingMode
+    toggleTestingMode,
+    getDrones,
+    addDrone,
+    removeDrone,
+    getFleetOverview
 } from '../controllers/adminController.js';
 import { upload } from "../middlewares/multerMiddleware.js"
 import { verifyJWT, verifyAdminJWT, checkAlreadyAuthenticated } from '../middlewares/authMiddleware.js';
@@ -127,8 +131,11 @@ adminRouter.get('/drones/config', getDroneConfig);
 adminRouter.get('/settings/testing-mode', verifyAdminJWT, onlyAdminAccess, getTestingModeStatus);
 adminRouter.post('/settings/testing-mode', verifyAdminJWT, onlyAdminAccess, toggleTestingMode);
 
-export default adminRouter;
+// Drone Fleet Management Routes
+adminRouter.get('/drones', verifyAdminJWT, onlyAdminAccess, getDrones);
+adminRouter.post('/drones', verifyAdminJWT, onlyAdminAccess, addDrone);
+adminRouter.delete('/drones/:droneId', verifyAdminJWT, onlyAdminAccess, removeDrone);
+adminRouter.get('/drones/fleet-overview', verifyAdminJWT, onlyAdminAccess, getFleetOverview);
 
-// Drone management (Admin only)
-adminRouter.post('/drones', verifyAdminJWT, onlyAdminAccess, createDrone);
+export default adminRouter;
 

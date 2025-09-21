@@ -59,9 +59,12 @@ const Admin = mongoose.model('Admin', adminSchema);
 
 async function createAdminUser() {
   try {
-    // Connect to MongoDB
+    // Connect to MongoDB - respect NODE_ENV
     const MONGODB_URL = 'mongodb://127.0.0.1:27017';
-    const DB_NAME = 'food-backend';
+    const DB_NAME = process.env.NODE_ENV === 'test' ? 'drone_delivery_db_test' : 'food-backend';
+    
+    console.log(`🔍 NODE_ENV: ${process.env.NODE_ENV}`);
+    console.log(`🔍 Using database: ${DB_NAME}`);
     
     await mongoose.connect(`${MONGODB_URL}/${DB_NAME}`, {
       useNewUrlParser: true,

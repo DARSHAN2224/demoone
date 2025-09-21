@@ -35,6 +35,12 @@ const DroneSchema = new mongoose.Schema({
     unique: true
   },
   
+  // WebSocket URL for drone bridge connection
+  wsUrl: {
+    type: String,
+    required: false
+  },
+  
   // Current status and telemetry
   status: { 
     type: String, 
@@ -45,6 +51,10 @@ const DroneSchema = new mongoose.Schema({
     type: String,
     enum: ['operational', 'maintenance_required', 'out_of_service', 'emergency'],
     default: 'operational'
+  },
+  is_active: {
+    type: Boolean,
+    default: true
   },
   
   // Location and movement

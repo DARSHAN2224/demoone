@@ -125,3 +125,15 @@ dist
 AirSimNH/
 mavsdk-env/
 external/
+
+# Ignore Node.js dependency folders
+node_modules/
+
+# Ignore log files
+logs/
+
+# Ignore Python cache
+__pycache__/
+
+# CRITICAL: Ignore all environment configuration files
+.env

@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
 import DroneSocketHandler from '../socket/droneSocketHandler.js';
+import { CORS_ORIGIN } from '../constants.js';
 
 let ioInstance = null;
 let droneSocketHandler = null;
@@ -7,7 +8,7 @@ let droneSocketHandler = null;
 const initSocket = (server) => {
   ioInstance = new Server(server, {
     cors: {
-      origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'],
+      origin: CORS_ORIGIN, // Use the CORS constant for consistency
       credentials: true,
       methods: ['GET', 'POST'],
       allowedHeaders: ['Content-Type', 'Authorization']
@@ -15,7 +16,10 @@ const initSocket = (server) => {
     transports: ['websocket', 'polling'],
     allowEIO3: true,
     pingTimeout: 60000,
-    pingInterval: 25000
+    pingInterval: 25000,
+    // Additional WebSocket configuration for better compatibility
+    allowUpgrades: true,
+    upgradeTimeout: 10000
   });
   
   console.log('🔌 Socket.IO server initialized');

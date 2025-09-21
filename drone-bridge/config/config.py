@@ -10,8 +10,8 @@ class Config:
     # --- Backend Connection ---
     # The URL for the Node.js backend's WebSocket server. The drone bridge acts as a client
     # to this server, pushing telemetry and mission updates.
-    # FIXED: The port is now correctly set to 8080 and the path includes the '/drone' namespace.
-    BACKEND_WS_URL = os.getenv("BACKEND_WS_URL", "ws://localhost:8080/drone")
+    # FIXED: The port is now correctly set to 8000 and the path includes the '/drone-bridge' namespace.
+    BACKEND_WS_URL = os.getenv("BACKEND_WS_URL", "ws://localhost:8000/drone-bridge")
 
     # --- Drone Bridge Server ---
     # The host and port for the drone bridge's own HTTP server. The Node.js backend

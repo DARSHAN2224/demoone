@@ -2,7 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import { useEffect } from 'react';
 import { io } from 'socket.io-client';
 import { useAuthStore } from './stores/authStore';
-import { useAppStore, useAppActions } from './stores/appStore';
+import { useAppStore, useSetTelemetry, useSetMissionState, useSetDroneConnection, useAddNotification } from './stores/appStore';
 import { useNotificationStore } from './stores/notificationStore';
 import { Toaster } from 'react-hot-toast';
 
@@ -38,6 +38,7 @@ import QRValidation from './components/user/QRValidation';
 import Profile from './components/user/Profile';
 import UserOffers from './components/user/UserOffers';
 import DeliveryTracking from './components/user/DeliveryTracking';
+import UserDroneTracking from './components/user/UserDroneTracking';
 
 // Seller Components
 import SellerDashboard from './components/seller/SellerDashboard';
@@ -48,7 +49,6 @@ import SellerEditShop from './components/seller/SellerEditShop';
 // Admin Components
 import AdminDashboard from './components/admin/AdminDashboard';
 import RegularDeliveryDashboard from './components/admin/RegularDeliveryDashboard';
-import UserDroneTracking from './components/user/UserDroneTracking';
 import ParcelTracking from './components/user/ParcelTracking';
 import SellerDroneCoordination from './components/seller/SellerDroneCoordination';
 import SellerDroneTracking from './components/seller/SellerDroneTracking';
@@ -182,7 +182,10 @@ const UnauthRoute = ({ children }) => {
 const AppContent = () => {
   const { checkAuth, isAuthenticated, isLoading, user } = useAuthStore();
   const { getHomeData } = useAppStore();
-  const { setTelemetry, setMissionState, setDroneConnection, addNotification } = useAppActions();
+  const setTelemetry = useSetTelemetry();
+  const setMissionState = useSetMissionState();
+  const setDroneConnection = useSetDroneConnection();
+  const addNotification = useAddNotification();
   const { fetchNotifications, subscribeLive } = useNotificationStore();
   const location = useLocation();
 
@@ -243,15 +246,12 @@ const AppContent = () => {
   useEffect(() => {
     console.log('🔌 App.jsx: Setting up global Socket.IO connection');
     
-    // Connect to the backend Socket.IO server
-    const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:8000', {
-      transports: ['websocket', 'polling'],
-      withCredentials: true
-    });
+    // We connect to the root path. The Vite proxy will handle routing to the backend.
+    const socket = io('/');
 
     // Connection event handlers
     socket.on('connect', () => {
-      console.log('🔌 Socket.IO connected:', socket.id);
+      console.log('✅ [Socket.IO] Successfully connected via WebSocket:', socket.id);
       setDroneConnection({ isConnected: true, droneId: 'DRONE-001' });
       addNotification({
         type: 'success',
@@ -270,8 +270,8 @@ const AppContent = () => {
       });
     });
 
-    socket.on('connect_error', (error) => {
-      console.error('🔌 Socket.IO connection error:', error);
+    socket.on('connect_error', (err) => {
+      console.error('❌ [Socket.IO] Connection error:', err.message);
       setDroneConnection({ isConnected: false });
       addNotification({
         type: 'error',
@@ -401,6 +401,7 @@ const AppContent = () => {
           <Route path="/orders/:id" element={<ProtectedRoute allowedRoles={['user']}><OrderDetail /></ProtectedRoute>} />
           <Route path="/order-history" element={<ProtectedRoute allowedRoles={['user']}><OrderHistory /></ProtectedRoute>} />
           <Route path="/drone-tracking" element={<ProtectedRoute allowedRoles={['user']}><UserDroneTracking /></ProtectedRoute>} />
+          <Route path="/track/:orderId" element={<UserDroneTracking />} />
           <Route path="/parcel-tracking" element={<ProtectedRoute allowedRoles={['user']}><ParcelTracking /></ProtectedRoute>} />
           <Route path="/qr-validation" element={<ProtectedRoute allowedRoles={['user']}><QRValidation /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

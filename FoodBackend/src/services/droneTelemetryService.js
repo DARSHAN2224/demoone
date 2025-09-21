@@ -1,8 +1,135 @@
 import { getIo } from './socket.js';
 import { Drone } from '../models/droneModel.js';
+import WebSocket from 'ws';
 
 // Store connected drones
 const connectedDrones = new Map();
+
+/**
+ * Creates a WebSocket connection to a specific drone bridge
+ * @param {string} wsUrl - WebSocket URL for the drone bridge
+ * @param {Object} io - Socket.IO instance for broadcasting
+ * @param {string} droneId - Unique drone identifier
+ * @returns {Object} WebSocket connection object
+ */
+export const droneTelemetryService = (wsUrl, io, droneId) => {
+  console.log(`🔌 Creating WebSocket connection to ${droneId} at ${wsUrl}`);
+  
+  const wsConnection = new WebSocket(wsUrl);
+  
+  wsConnection.on('open', () => {
+    console.log(`✅ Connected to drone ${droneId} at ${wsUrl}`);
+    
+    // Store connection info
+    connectedDrones.set(droneId, {
+      wsConnection,
+      lastSeen: Date.now(),
+      status: 'CONNECTED'
+    });
+    
+    // Notify clients that drone is connected
+    io.emit('drone_status', { 
+      droneId, 
+      status: 'CONNECTED',
+      wsUrl,
+      timestamp: new Date().toISOString()
+    });
+  });
+  
+  wsConnection.on('message', async (data) => {
+    try {
+      const message = JSON.parse(data.toString());
+      console.log(`📡 Received from ${droneId}:`, message);
+      
+      // Update last seen
+      if (connectedDrones.has(droneId)) {
+        connectedDrones.get(droneId).lastSeen = Date.now();
+      }
+      
+      // Handle different message types
+      if (message.type === 'drone_telemetry') {
+        const telemetryData = message.payload;
+        
+        // Broadcast telemetry to frontend clients
+        io.emit('drone_telemetry', {
+          droneId,
+          ...telemetryData,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Update database
+        await Drone.findOneAndUpdate(
+          { droneId },
+          {
+            lastLocation: {
+              type: 'Point',
+              coordinates: [telemetryData.longitude_deg, telemetryData.latitude_deg],
+            },
+            batteryLevel: telemetryData.battery || 100,
+            altitude: telemetryData.relative_altitude_m || 0,
+            lastSeen: new Date(),
+            status: 'active'
+          },
+          { upsert: true, new: true }
+        );
+        
+      } else if (message.type === 'mission_update') {
+        const missionData = message.payload;
+        
+        // Broadcast mission update to frontend clients
+        io.emit('mission_update', {
+          droneId,
+          ...missionData,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+    } catch (error) {
+      console.error(`Error processing message from ${droneId}:`, error);
+    }
+  });
+  
+  wsConnection.on('close', () => {
+    console.log(`🔌 Disconnected from drone ${droneId}`);
+    
+    // Update status
+    if (connectedDrones.has(droneId)) {
+      connectedDrones.get(droneId).status = 'DISCONNECTED';
+    }
+    
+    // Notify clients
+    io.emit('drone_status', { 
+      droneId, 
+      status: 'DISCONNECTED',
+      timestamp: new Date().toISOString()
+    });
+    
+    // Update database
+    Drone.findOneAndUpdate(
+      { droneId },
+      { status: 'offline', lastSeen: new Date() }
+    ).catch(console.error);
+  });
+  
+  wsConnection.on('error', (error) => {
+    console.error(`❌ WebSocket error for ${droneId}:`, error);
+    
+    // Update status
+    if (connectedDrones.has(droneId)) {
+      connectedDrones.get(droneId).status = 'ERROR';
+    }
+    
+    // Notify clients
+    io.emit('drone_status', { 
+      droneId, 
+      status: 'ERROR',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  });
+  
+  return wsConnection;
+};
 
 const initializeTelemetryService = () => {
     const io = getIo();

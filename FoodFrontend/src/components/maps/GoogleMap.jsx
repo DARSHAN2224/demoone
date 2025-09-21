@@ -34,6 +34,15 @@ const GoogleMapComponent = ({
   // Initialize map
   useEffect(() => {
     if (mapRef.current && !map) {
+      console.log('Initializing Google Map...', mapRef.current);
+      console.log('Google Maps API available:', !!window.google);
+      console.log('Google Maps API loaded:', !!window.google?.maps);
+      
+      if (!window.google?.maps) {
+        console.error('Google Maps API not loaded!');
+        return;
+      }
+      
       const newMap = new window.google.maps.Map(mapRef.current, {
         center: center,
         zoom: zoom,
@@ -53,14 +62,20 @@ const GoogleMapComponent = ({
 
       // Add click listener
       if (onMapClick) {
+        console.log('Adding click listener to map');
         newMap.addListener('click', (event) => {
+          console.log('Map click event triggered!', event);
           const lat = event.latLng.lat();
           const lng = event.latLng.lng();
+          console.log('Calling onMapClick with:', { lat, lng });
           onMapClick({ lat, lng });
         });
+      } else {
+        console.log('No onMapClick handler provided');
       }
 
       setMap(newMap);
+      console.log('Google Map initialized successfully!', newMap);
     }
   }, [mapRef, map, center, zoom, onMapClick]);
 
@@ -75,10 +90,13 @@ const GoogleMapComponent = ({
   useEffect(() => {
     if (!map) return;
 
+    console.log('Updating waypoint markers:', waypoints);
+
     // Clear existing waypoint markers
     markers.forEach(marker => { try { marker.setMap(null); } catch(_) {} });
 
     const newMarkers = waypoints.map((waypoint, index) => {
+      console.log(`Creating marker ${index + 1}:`, waypoint);
       const marker = new window.google.maps.Marker({
         position: { lat: waypoint.lat, lng: waypoint.lng },
         map: map,
@@ -305,7 +323,7 @@ const GoogleMapComponent = ({
 
   return (
     <div className={className}>
-      <div ref={mapRef} className="w-full h-full rounded-lg" />
+      <div ref={mapRef} className="w-full h-full rounded-lg" style={{ minHeight: '400px', backgroundColor: '#f0f0f0' }} />
       
       {/* Map overlay with drone info */}
       {dronePosition && (

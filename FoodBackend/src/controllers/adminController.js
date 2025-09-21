@@ -896,3 +896,97 @@ export const toggleSellerStatus = asyncHandler(async (req, res) => {
 export const getCsrfToken = (req, res) => {
     res.status(200).json({ csrfToken: req.csrfToken() });
 };
+
+// ==================== DRONE FLEET MANAGEMENT ====================
+
+/**
+ * Get all drones in the fleet
+ */
+export const getDrones = asyncHandler(async (req, res) => {
+    try {
+        const drones = await Drone.find({ is_active: true }).select('-__v');
+        
+        res.status(200).json(new ApiResponse(200, drones, 'Drones retrieved successfully'));
+    } catch (error) {
+        console.error('Error fetching drones:', error);
+        throw new ApiError('Failed to fetch drones', 500, error.message);
+    }
+});
+
+/**
+ * Add a new drone to the fleet
+ */
+export const addDrone = asyncHandler(async (req, res) => {
+    try {
+        const { droneId, wsUrl, model = 'Generic Drone', capabilities = ['takeoff', 'land', 'navigate'] } = req.body;
+        
+        // Validate required fields
+        if (!droneId || !wsUrl) {
+            throw new ApiError('Missing required fields', 400, 'Drone ID and WebSocket URL are required');
+        }
+        
+        // Check if drone already exists
+        const existingDrone = await Drone.findOne({ droneId });
+        if (existingDrone) {
+            throw new ApiError('Drone already exists', 409, 'A drone with this ID already exists');
+        }
+        
+        // Create new drone
+        const drone = new Drone({
+            droneId,
+            wsUrl,
+            model,
+            capabilities,
+            status: 'offline',
+            is_active: true,
+            registeredAt: new Date()
+        });
+        
+        await drone.save();
+        
+        res.status(201).json(new ApiResponse(201, drone, 'Drone added successfully'));
+    } catch (error) {
+        console.error('Error adding drone:', error);
+        if (error instanceof ApiError) {
+            throw error;
+        }
+        throw new ApiError('Failed to add drone', 500, error.message);
+    }
+});
+
+/**
+ * Remove a drone from the fleet
+ */
+export const removeDrone = asyncHandler(async (req, res) => {
+    try {
+        const { droneId } = req.params;
+        
+        const drone = await Drone.findOneAndDelete({ droneId });
+        if (!drone) {
+            throw new ApiError('Drone not found', 404, 'Drone does not exist');
+        }
+        
+        res.status(200).json(new ApiResponse(200, drone, 'Drone removed successfully'));
+    } catch (error) {
+        console.error('Error removing drone:', error);
+        if (error instanceof ApiError) {
+            throw error;
+        }
+        throw new ApiError('Failed to remove drone', 500, error.message);
+    }
+});
+
+/**
+ * Get fleet overview with connection status
+ */
+export const getFleetOverview = asyncHandler(async (req, res) => {
+    try {
+        const { droneDiscoveryService } = await import('../services/droneDiscoveryService.js');
+        const overview = droneDiscoveryService.getFleetOverview();
+        
+        res.status(200).json(new ApiResponse(200, overview, 'Fleet overview retrieved successfully'));
+    } catch (error) {
+        console.error('Error fetching fleet overview:', error);
+        throw new ApiError('Failed to fetch fleet overview', 500, error.message);
+    }
+});

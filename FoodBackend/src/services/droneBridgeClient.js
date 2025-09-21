@@ -7,13 +7,18 @@ class DroneBridgeClient {
     this.environment = process.env.NODE_ENV || 'development';
     this.isTestMode = process.env.DRONE_TEST_MODE === 'true';
     
-    // Enable WebSocket for real drone bridge connection
-    process.env.DRONE_SIMULATION_MODE = 'false';
-    process.env.DRONE_BRIDGE_ENABLE_WS = 'true';
+    // Disable WebSocket for drone bridge client (backend should be server, not client)
+    process.env.DRONE_SIMULATION_MODE = 'true';
+    process.env.DRONE_BRIDGE_ENABLE_WS = 'false';
     
     // Configure URLs based on environment variables
     this.baseURL = process.env.DRONE_BRIDGE_URL || 'http://localhost:8001';
-    this.wsURL = process.env.DRONE_BRIDGE_WS_URL || 'ws://localhost:8080/drone';
+    
+    // Force correct WebSocket URL for drone bridge
+    this.wsURL = 'ws://localhost:8080/drone';
+    
+    // Override any environment variable that might be wrong
+    process.env.DRONE_BRIDGE_WS_URL = 'ws://localhost:8080/drone';
     this.isSimulationMode = process.env.DRONE_SIMULATION_MODE === 'true';
     
     this.isConnected = false;
@@ -401,8 +406,9 @@ class DroneBridgeClient {
 export const droneBridgeClient = new DroneBridgeClient();
 
 // Initialize connection when module is imported
-droneBridgeClient.connectWebSocket().catch(error => {
-  console.warn('Failed to connect to drone bridge WebSocket:', error.message);
-});
+// WebSocket connection disabled - backend is the WebSocket server, not client
+// droneBridgeClient.connectWebSocket().catch(error => {
+//   console.warn('Failed to connect to drone bridge WebSocket:', error.message);
+// });
 
 export default droneBridgeClient;

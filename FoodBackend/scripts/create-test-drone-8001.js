@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 // Load environment variables
 dotenv.config();
 
-// Drone Schema (import from model)
+// Drone Schema (complete with all required fields)
 const droneSchema = new mongoose.Schema({
   droneId: {
     type: String,
@@ -22,12 +22,31 @@ const droneSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  serialNumber: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  mavsdkPort: {
+    type: Number,
+    required: true
+  },
+  wsUrl: {
+    type: String,
+    required: true
+  },
   status: {
     type: String,
     enum: ['idle', 'assigned', 'launching', 'in_flight', 'delivering', 'returning', 'landing', 'maintenance', 'emergency_stop'],
     default: 'idle'
   },
   battery: {
+    type: Number,
+    default: 100,
+    min: 0,
+    max: 100
+  },
+  batteryLevel: {
     type: Number,
     default: 100,
     min: 0,
@@ -65,6 +84,18 @@ const droneSchema = new mongoose.Schema({
     ref: 'Order',
     default: null
   },
+  capabilities: [{
+    type: String,
+    enum: ['takeoff', 'land', 'navigate', 'hover', 'return_to_launch', 'emergency_stop']
+  }],
+  is_active: {
+    type: Boolean,
+    default: true
+  },
+  registeredAt: {
+    type: Date,
+    default: Date.now
+  },
   telemetry: {
     lastUpdate: {
       type: Date,
@@ -75,7 +106,7 @@ const droneSchema = new mongoose.Schema({
 
 const Drone = mongoose.model('Drone', droneSchema);
 
-async function createTestDrone() {
+async function createTestDrone8001() {
   try {
     // Connect to MongoDB - respect NODE_ENV
     const MONGODB_URL = 'mongodb://127.0.0.1:27017';
@@ -97,17 +128,22 @@ async function createTestDrone() {
       console.log('🚁 Drone ID: DRONE-001');
       console.log('📊 Status:', existingDrone.status);
       console.log('🔋 Battery:', existingDrone.battery + '%');
-      console.log('📍 Location:', existingDrone.location.coordinates);
+      console.log('🔌 MAVSDK Port:', existingDrone.mavsdkPort);
+      console.log('🌐 WebSocket URL:', existingDrone.wsUrl);
       return;
     }
 
-    // Create test drone
+    // Create test drone with port 8001
     const testDrone = new Drone({
       droneId: 'DRONE-001',
-      name: 'Test Drone',
-      model: 'Generic Quadcopter',
+      name: 'Test Drone Alpha',
+      model: 'Generic Quadcopter v2.0',
+      serialNumber: 'SN-TEST-001-ALPHA',
+      mavsdkPort: 8001,
+      wsUrl: 'ws://localhost:8001/drone',
       status: 'idle',
       battery: 100,
+      batteryLevel: 100,
       location: {
         type: 'Point',
         coordinates: [-122.1401649, 47.6414678] // Seattle coordinates
@@ -116,6 +152,9 @@ async function createTestDrone() {
       speed: 0,
       heading: 0,
       currentOrderId: null,
+      capabilities: ['takeoff', 'land', 'navigate', 'hover', 'return_to_launch', 'emergency_stop'],
+      is_active: true,
+      registeredAt: new Date(),
       telemetry: {
         lastUpdate: new Date()
       }
@@ -126,8 +165,11 @@ async function createTestDrone() {
     console.log('🚁 Drone ID: DRONE-001');
     console.log('📊 Status: idle');
     console.log('🔋 Battery: 100%');
+    console.log('🔌 MAVSDK Port: 8001');
+    console.log('🌐 WebSocket URL: ws://localhost:8001/drone');
     console.log('📍 Location: Seattle (47.6414678, -122.1401649)');
-    console.log('\n🎉 You can now test drone commands using the PowerShell script!');
+    console.log('🎯 Capabilities: takeoff, land, navigate, hover, return_to_launch, emergency_stop');
+    console.log('\n🎉 Test drone is ready for testing with port 8001!');
 
   } catch (error) {
     console.error('❌ Error creating test drone:', error);
@@ -137,5 +179,5 @@ async function createTestDrone() {
   }
 }
 
-// Run the function
-createTestDrone();
+// Run the script
+createTestDrone8001();

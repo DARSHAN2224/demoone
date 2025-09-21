@@ -8,19 +8,19 @@
     "start": "node -r ./src/config/dotenvConfig.js src/index.js",
     "dev": "nodemon -r ./src/config/dotenvConfig.js src/index.js",
     "start:all": "concurrently \"npm run dev\" \"cd ../FoodFrontend && npm run dev\"",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "test:api": "jest --testPathPattern=api",
-    "test:unit": "jest --testPathPattern=unit",
-    "test:e2e": "jest --testPathPattern=e2e",
-    "test:security": "jest --testPathPattern=security",
-    "test:performance": "jest --testPathPattern=performance",
-    "test:middleware": "jest --testPathPattern=middleware",
-    "test:validation": "jest --testPathPattern=validation",
-    "test:websocket": "jest --testPathPattern=websocket",
-    "test:drone": "jest --testPathPattern=drone",
-    "test:auth": "jest --testPathPattern=auth",
+    "test": "cross-env NODE_ENV=test jest",
+    "test:watch": "cross-env NODE_ENV=test jest --watch",
+    "test:coverage": "cross-env NODE_ENV=test jest --coverage",
+    "test:api": "cross-env NODE_ENV=test jest --testPathPattern=api",
+    "test:unit": "cross-env NODE_ENV=test jest --testPathPattern=unit",
+    "test:e2e": "cross-env NODE_ENV=test jest --testPathPattern=e2e",
+    "test:security": "cross-env NODE_ENV=test jest --testPathPattern=security",
+    "test:performance": "cross-env NODE_ENV=test jest --testPathPattern=performance",
+    "test:middleware": "cross-env NODE_ENV=test jest --testPathPattern=middleware",
+    "test:validation": "cross-env NODE_ENV=test jest --testPathPattern=validation",
+    "test:websocket": "cross-env NODE_ENV=test jest --testPathPattern=websocket",
+    "test:drone": "cross-env NODE_ENV=test jest --testPathPattern=drone",
+    "test:auth": "cross-env NODE_ENV=test jest --testPathPattern=auth",
     "test:cleanup": "node tests/cleanup.js",
     "test:setup": "node tests/setup.js",
     "test:seed": "node tests/seed.js",
@@ -46,7 +46,8 @@
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^3.3.2",
     "nodemailer": "^6.9.4",
-    "socket.io": "^4.7.2"
+    "socket.io": "^4.7.2",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/jest": "^29.5.4",
@@ -81,7 +82,11 @@
       "lcov"
     ],
     "testTimeout": 30000,
-    "verbose": true
+    "verbose": true,
+    "transform": {},
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    }
   },
   "keywords": [
     "food-delivery",

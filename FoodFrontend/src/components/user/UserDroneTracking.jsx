@@ -1,362 +1,170 @@
 import React, { useState, useEffect } from 'react';
-import { useAuthStore } from '../../stores/authStore';
-import { api } from '../../stores/api';
-import { 
-    MapPin, 
-    Clock, 
-    Battery, 
-    Navigation, 
-    CheckCircle, 
-    XCircle, 
-    AlertCircle,
-    Truck,
-    Drone
-} from 'lucide-react';
+import { useTelemetry, useMissionState } from '@/stores/appStore';
+import DroneTrackingMap from '@/components/user/DroneTrackingMap';
+import { Progress } from '@/components/ui/progress';
+import { api } from '@/services/api';
+import { useParams } from 'react-router-dom';
+import { MapPin, Clock, Package, Truck } from 'lucide-react';
 
+/**
+ * UserDroneTracking - Production UI for Regular Users
+ * This is the clean, simple interface that regular users see when tracking their delivery.
+ * It only shows information relevant to their specific order.
+ */
 const UserDroneTracking = () => {
-    const { user } = useAuthStore();
-    const [activeDeliveries, setActiveDeliveries] = useState([]);
-    const [deliveryHistory, setDeliveryHistory] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('active');
-    const [selectedDelivery, setSelectedDelivery] = useState(null);
+  const { orderId } = useParams(); // Get the order ID from the URL (e.g., /track/ORDER123)
+  const [orderDetails, setOrderDetails] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  
+  // Get live telemetry and mission state from our global store
+  const telemetry = useTelemetry();
+  const missionState = useMissionState();
 
     useEffect(() => {
-        if (user) {
-            loadActiveDeliveries();
-            loadDeliveryHistory();
-        }
-    }, [user]);
-
-    const loadActiveDeliveries = async () => {
-        try {
-            const response = await api.get('/drone/user/active-deliveries');
-            setActiveDeliveries(response.data.data.activeDeliveries || []);
-        } catch (error) {
-            console.error('Failed to load active deliveries:', error);
-        }
-    };
-
-    const loadDeliveryHistory = async () => {
-        try {
-            const response = await api.get('/drone/user/history');
-            setDeliveryHistory(response.data.data.deliveries || []);
-        } catch (error) {
-            console.error('Failed to load delivery history:', error);
+    const fetchOrderDetails = async () => {
+      if (!orderId) {
+        setError('No order ID provided');
+        setIsLoading(false);
+        return;
+      }
+      
+      try {
+        setIsLoading(true);
+        // This API endpoint would return the drone assigned to this specific order
+        const response = await api.get(`/orders/track/${orderId}`);
+        setOrderDetails(response.data.data);
+      } catch (err) {
+        console.error('Error fetching order details:', err);
+        setError('Could not find order details. Please check your order ID.');
         } finally {
-            setLoading(false);
-        }
+        setIsLoading(false);
+      }
     };
+    
+    fetchOrderDetails();
+  }, [orderId]);
 
-    const getStatusColor = (status) => {
-        const statusColors = {
-            'assigned': 'text-primary-600',
-            'preparing': 'text-yellow-600',
-            'ready_for_pickup': 'text-orange-600',
-            'drone_en_route': 'text-purple-600',
-            'picked_up': 'text-indigo-600',
-            'in_transit': 'text-primary-600',
-            'approaching_delivery': 'text-green-600',
-            'delivered': 'text-green-600',
-            'failed': 'text-red-600',
-            'cancelled': 'text-gray-600'
-        };
-        return statusColors[status] || 'text-gray-600';
-    };
+  // We only care about the telemetry for the drone assigned to THIS order
+  const isRelevantTelemetry = orderDetails && telemetry.droneId === orderDetails.assignedDroneId;
+  const dronePosition = isRelevantTelemetry && telemetry.latitude_deg && telemetry.longitude_deg 
+    ? { lat: telemetry.latitude_deg, lng: telemetry.longitude_deg } 
+    : null;
 
-    const getStatusIcon = (status) => {
-        const statusIcons = {
-            'assigned': <Drone className="w-5 h-5" />,
-            'preparing': <Truck className="w-5 h-5" />,
-            'ready_for_pickup': <CheckCircle className="w-5 h-5" />,
-            'drone_en_route': <Navigation className="w-5 h-5" />,
-            'picked_up': <CheckCircle className="w-5 h-5" />,
-            'in_transit': <Navigation className="w-5 h-5" />,
-            'approaching_delivery': <MapPin className="w-5 h-5" />,
-            'delivered': <CheckCircle className="w-5 h-5" />,
-            'failed': <XCircle className="w-5 h-5" />,
-            'cancelled': <XCircle className="w-5 h-5" />
-        };
-        return statusIcons[status] || <AlertCircle className="w-5 h-5" />;
-    };
+  // Prepare waypoints for the map (pickup and delivery locations)
+  const waypoints = orderDetails ? [
+    {
+      lat: orderDetails.pickupLocation?.coordinates?.[1] || orderDetails.pickupLocation?.lat,
+      lng: orderDetails.pickupLocation?.coordinates?.[0] || orderDetails.pickupLocation?.lng,
+      label: 'Pickup Location'
+    },
+    {
+      lat: orderDetails.deliveryLocation?.coordinates?.[1] || orderDetails.deliveryLocation?.lat,
+      lng: orderDetails.deliveryLocation?.coordinates?.[0] || orderDetails.deliveryLocation?.lng,
+      label: 'Delivery Location'
+    }
+  ].filter(wp => wp.lat && wp.lng) : [];
 
-    const formatStatus = (status) => {
-        return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    };
-
-    const formatTime = (timeString) => {
-        if (!timeString) return 'TBD';
-        return new Date(timeString).toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    };
-
-    const formatDate = (dateString) => {
-        if (!dateString) return 'TBD';
-        return new Date(dateString).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-        });
-    };
-
-    const DeliveryCard = ({ delivery, isActive = true }) => (
-        <div className={`bg-white rounded-lg shadow-md p-6 border-l-4 ${
-            isActive ? 'border-blue-500' : 'border-gray-300'
-        }`}>
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-3">
-                    {getStatusIcon(delivery.status)}
-                    <div>
-                        <h3 className="font-semibold text-gray-900">
-                            Order #{delivery.orderId}
-                        </h3>
-                        <p className={`text-sm font-medium ${getStatusColor(delivery.status)}`}>
-                            {formatStatus(delivery.status)}
-                        </p>
+  if (isLoading) {
+    return (
+      <div className="flex h-screen bg-gray-900 text-white items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mx-auto mb-4"></div>
+          <p className="text-lg">Loading order details...</p>
                     </div>
                 </div>
-                {isActive && delivery.deliveryProgress !== undefined && (
-                    <div className="text-right">
-                        <div className="text-2xl font-bold text-primary-600">
-                            {Math.round(delivery.deliveryProgress)}%
-                        </div>
-                        <div className="text-xs text-gray-500">Complete</div>
-                    </div>
-                )}
-            </div>
+    );
+  }
 
-            {isActive && delivery.drone && (
-                <div className="bg-blue-50 rounded-lg p-4 mb-4">
-                    <div className="flex items-center space-x-3">
-                        <Drone className="w-6 h-6 text-primary-600" />
-                        <div>
-                            <h4 className="font-medium text-blue-900">
-                                {delivery.drone.name} ({delivery.drone.droneId})
-                            </h4>
-                            <p className="text-sm text-blue-700">
-                                Status: {formatStatus(delivery.drone.status)}
-                            </p>
-                        </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4 mt-3">
-                        <div className="flex items-center space-x-2">
-                            <Battery className="w-4 h-4 text-gray-500" />
-                            <span className="text-sm text-gray-600">
-                                {delivery.drone.battery}% Battery
-                            </span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                            <MapPin className="w-4 h-4 text-gray-500" />
-                            <span className="text-sm text-gray-600">
-                                {delivery.drone.location?.altitude || 0}m Altitude
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <div className="space-y-3">
-                <div className="flex items-center space-x-3">
-                    <MapPin className="w-4 h-4 text-gray-500" />
-                    <div className="text-sm">
-                        <p className="text-gray-900 font-medium">Delivery Location</p>
-                        <p className="text-gray-600">{delivery.location?.delivery?.address || 'Address not available'}</p>
-                    </div>
-                </div>
-
-                {isActive && delivery.estimatedDeliveryTime && (
-                    <div className="flex items-center space-x-3">
-                        <Clock className="w-4 h-4 text-gray-500" />
-                        <div className="text-sm">
-                            <p className="text-gray-900 font-medium">Estimated Delivery</p>
-                            <p className="text-gray-600">
-                                {formatTime(delivery.estimatedDeliveryTime)} • {formatDate(delivery.estimatedDeliveryTime)}
-                            </p>
-                        </div>
-                    </div>
-                )}
-
-                {!isActive && delivery.deliveredAt && (
-                    <div className="flex items-center space-x-3">
-                        <Clock className="w-4 h-4 text-gray-500" />
-                        <div className="text-sm">
-                            <p className="text-gray-900 font-medium">Delivered On</p>
-                            <p className="text-gray-600">
-                                {formatTime(delivery.deliveredAt)} • {formatDate(delivery.deliveredAt)}
-                            </p>
-                        </div>
-                    </div>
-                )}
-
-                {delivery.seller && (
-                    <div className="flex items-center space-x-3">
-                        <Truck className="w-4 h-4 text-gray-500" />
-                        <div className="text-sm">
-                            <p className="text-gray-900 font-medium">Restaurant</p>
-                            <p className="text-gray-600">{delivery.seller.name}</p>
-                        </div>
-                    </div>
-                )}
-
-                {!isActive && delivery.totalPrice && (
-                    <div className="flex items-center space-x-3">
-                        <span className="text-sm">
-                            <p className="text-gray-900 font-medium">Total Cost</p>
-                            <p className="text-gray-600">₹{delivery.totalPrice}</p>
-                        </span>
-                    </div>
-                )}
-            </div>
-
-            {isActive && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
+  if (error) {
+    return (
+      <div className="flex h-screen bg-gray-900 text-white items-center justify-center">
+        <div className="text-center p-8">
+          <div className="text-red-400 text-6xl mb-4">⚠️</div>
+          <h2 className="text-2xl font-bold mb-2">Order Not Found</h2>
+          <p className="text-gray-400 mb-4">{error}</p>
                     <button
-                        onClick={() => setSelectedDelivery(delivery)}
-                        className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+            onClick={() => window.history.back()}
+            className="px-6 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors"
                     >
-                        Track Live Location
+            Go Back
                     </button>
                 </div>
-            )}
         </div>
     );
+  }
 
-    if (loading) {
+  if (!orderDetails) {
         return (
-            <div className="flex items-center justify-center min-h-64">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex h-screen bg-gray-900 text-white items-center justify-center">
+        <div className="text-center">
+          <div className="text-gray-400 text-6xl mb-4">📦</div>
+          <p className="text-lg">No order details available</p>
+        </div>
             </div>
         );
     }
 
     return (
-        <div className="max-w-6xl mx-auto px-4 py-8">
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                    🚁 Drone Delivery Tracking
-                </h1>
-                <p className="text-gray-600">
-                    Track your drone deliveries in real-time and view delivery history
-                </p>
+    <div className="flex h-screen bg-gray-900 text-white">
+      {/* Map takes up most of the screen */}
+      <div className="w-full h-full relative">
+        <DroneTrackingMap
+          dronePosition={dronePosition}
+          waypoints={waypoints}
+          showDronePath={true}
+          showWaypointLabels={true}
+        />
             </div>
 
-            {/* Tab Navigation */}
-            <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6">
-                <button
-                    onClick={() => setActiveTab('active')}
-                    className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                        activeTab === 'active'
-                            ? 'bg-white text-primary-600 shadow-sm'
-                            : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                >
-                    Active Deliveries ({activeDeliveries.length})
-                </button>
-                <button
-                    onClick={() => setActiveTab('history')}
-                    className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                        activeTab === 'history'
-                            ? 'bg-white text-primary-600 shadow-sm'
-                            : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                >
-                    Delivery History ({deliveryHistory.length})
-                </button>
+      {/* Status overlay at the bottom */}
+      <div className="absolute bottom-0 left-0 right-0 bg-black/80 backdrop-blur-sm p-6 m-4 rounded-lg border border-gray-700">
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center space-x-3">
+            <Package className="h-6 w-6 text-cyan-400" />
+            <h2 className="text-xl font-bold">Order #{orderDetails.shortId || orderDetails.orderId}</h2>
+          </div>
+          <div className="text-right">
+            <p className="text-lg font-mono text-cyan-400">{missionState.status || 'Preparing'}</p>
+            <p className="text-sm text-gray-400">Status</p>
+          </div>
             </div>
 
-            {/* Content */}
-            {activeTab === 'active' ? (
-                <div>
-                    {activeDeliveries.length === 0 ? (
-                        <div className="text-center py-12">
-                            <Drone className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                            <h3 className="text-lg font-medium text-gray-900 mb-2">
-                                No Active Deliveries
-                            </h3>
-                            <p className="text-gray-600">
-                                You don't have any active drone deliveries at the moment.
-                            </p>
+        <p className="text-sm text-gray-300 mb-4">{missionState.details || 'Your order is being prepared for delivery'}</p>
+        
+        <div className="mb-4">
+          <div className="flex justify-between text-sm mb-2">
+            <span className="text-gray-400">Delivery Progress</span>
+            <span className="text-cyan-400">{missionState.progress || 0}%</span>
                         </div>
-                    ) : (
-                        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                            {activeDeliveries.map((delivery) => (
-                                <DeliveryCard 
-                                    key={delivery._id} 
-                                    delivery={delivery} 
-                                    isActive={true}
-                                />
-                            ))}
-                        </div>
-                    )}
-                </div>
-            ) : (
-                <div>
-                    {deliveryHistory.length === 0 ? (
-                        <div className="text-center py-12">
-                            <CheckCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                            <h3 className="text-lg font-medium text-gray-900 mb-2">
-                                No Delivery History
-                            </h3>
-                            <p className="text-gray-600">
-                                You haven't completed any drone deliveries yet.
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                            {deliveryHistory.map((delivery) => (
-                                <DeliveryCard 
-                                    key={delivery._id} 
-                                    delivery={delivery} 
-                                    isActive={false}
-                                />
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* Live Tracking Modal */}
-            {selectedDelivery && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold">
-                                Live Tracking - Order #{selectedDelivery.orderId}
-                            </h3>
-                            <button
-                                onClick={() => setSelectedDelivery(null)}
-                                className="text-gray-500 hover:text-gray-700"
-                            >
-                                <XCircle className="w-6 h-6" />
-                            </button>
+          <Progress value={missionState.progress || 0} className="h-2" />
                         </div>
                         
-                        <div className="bg-gray-100 rounded-lg p-4 mb-4">
-                            <p className="text-sm text-gray-600 mb-2">
-                                Real-time drone tracking will be implemented here with:
-                            </p>
-                            <ul className="text-sm text-gray-600 space-y-1">
-                                <li>• Live GPS coordinates</li>
-                                <li>• Real-time altitude and speed</li>
-                                <li>• Estimated time of arrival</li>
-                                <li>• Interactive map view</li>
-                            </ul>
+        {/* Order details */}
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="flex items-center space-x-2">
+            <MapPin className="h-4 w-4 text-green-400" />
+            <span className="text-gray-400">From:</span>
+            <span className="text-white">{orderDetails.shopName || 'Restaurant'}</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Truck className="h-4 w-4 text-blue-400" />
+            <span className="text-gray-400">To:</span>
+            <span className="text-white">{orderDetails.deliveryAddress || 'Your Address'}</span>
+                        </div>
                         </div>
                         
-                        <div className="flex justify-end space-x-3">
-                            <button
-                                onClick={() => setSelectedDelivery(null)}
-                                className="px-4 py-2 text-gray-600 hover:text-gray-800"
-                            >
-                                Close
-                            </button>
-                        </div>
+        {/* Estimated delivery time */}
+        {orderDetails.estimatedDeliveryTime && (
+          <div className="mt-4 pt-4 border-t border-gray-600">
+            <div className="flex items-center space-x-2 text-sm">
+              <Clock className="h-4 w-4 text-yellow-400" />
+              <span className="text-gray-400">Estimated delivery:</span>
+              <span className="text-white font-medium">{orderDetails.estimatedDeliveryTime}</span>
                     </div>
                 </div>
             )}
+      </div>
         </div>
     );
 };

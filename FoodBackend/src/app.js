@@ -8,6 +8,7 @@ import morgan from 'morgan';
 import { handleCsrfErrors } from './middlewares/csrfMiddleware.js';
 import { sanitizeBody } from './middlewares/inputSanitizationMiddleware.js';
 import { attachNotifyFlag } from './middlewares/notificationFlagMiddleware.js';
+import { CORS_ORIGIN } from './constants.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -45,11 +46,9 @@ if (process.env.NODE_ENV === 'production') {
   app.use(morgan('dev'));
 }
 
-// CORS configuration (Industry Standard)
+// CORS configuration (Industry Standard) - Using CORS_ORIGIN constant
 app.use(cors({ 
-  origin: process.env.NODE_ENV === 'production' 
-    ? [process.env.FRONTEND_URL || 'https://yourdomain.com'] 
-    : ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: CORS_ORIGIN,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token', 'x-test-mode'],
@@ -640,11 +639,10 @@ app.use((err, req, res, next) => {
 // CSRF error handling
 app.use(handleCsrfErrors);
 
-// Start drone discovery service
-droneDiscoveryService.startDiscovery(10000); // Check every 10 seconds
+// Start drone discovery service (will be initialized after server starts)
+// droneDiscoveryService.start(io); // Moved to index.js after server initialization
 
 export { app };
 
-// Initialize global settings (fire-and-forget)
-try { Settings.initialize(); } catch {}
+// Initialize global settings (moved to index.js after database connection)
 

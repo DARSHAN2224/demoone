@@ -1,175 +1,179 @@
-import fetch from 'node-fetch';
+import { Drone } from '../models/droneModel.js';
+import { droneTelemetryService } from './droneTelemetryService.js';
+import { ApiError } from '../utils/ApiError.js';
 
+/**
+ * Manages the connection and status of all drones registered in the system.
+ * It dynamically discovers drones from the database and establishes WebSocket connections.
+ */
 class DroneDiscoveryService {
-    constructor() {
-        this.basePort = 8001; // Should match BRIDGE_HTTP_PORT_BASE from drone-bridge config
-        this.maxDrones = parseInt(process.env.MAX_DRONES || '5');
-        this.discoveredDrones = new Map();
-        this.discoveryInterval = null;
-        this.isDiscovering = false;
-    }
+  constructor() {
+    this.activeDrones = new Map(); // Use a Map to store active drone connections
+    this.discoveryInterval = null;
+    this.isDiscovering = false;
+  }
 
-    /**
-     * Start automatic drone discovery
-     */
-    startDiscovery(intervalMs = 10000) {
-        if (this.isDiscovering) return;
-        
-        this.isDiscovering = true;
-        console.log(`🔍 Starting drone discovery service (checking every ${intervalMs}ms)`);
-        
-        // Initial discovery
-        this.discoverDrones();
-        
-        // Set up periodic discovery
-        this.discoveryInterval = setInterval(() => {
-            this.discoverDrones();
-        }, intervalMs);
-    }
+  /**
+   * Fetches all drones from the database and attempts to connect to each one.
+   * This function is the core of the dynamic connection logic.
+   */
+  async discoverAndConnectDrones(io) {
+    console.log('🔍 Starting drone discovery...');
+    try {
+      const allDrones = await Drone.find({ is_active: true });
 
-    /**
-     * Stop automatic drone discovery
-     */
-    stopDiscovery() {
-        if (this.discoveryInterval) {
-            clearInterval(this.discoveryInterval);
-            this.discoveryInterval = null;
+      if (allDrones.length === 0) {
+        console.log('No active drones found in the database.');
+        return;
+      }
+
+      console.log(`Found ${allDrones.length} active drones. Attempting to connect...`);
+
+      allDrones.forEach(drone => {
+        // If not already connected, create a new telemetry service for it
+        if (!this.activeDrones.has(drone.droneId)) {
+          console.log(`Attempting to connect to drone: ${drone.droneId} at ${drone.wsUrl}`);
+          
+          const telemetryClient = droneTelemetryService(drone.wsUrl, io, drone.droneId);
+          
+          this.activeDrones.set(drone.droneId, {
+            ...drone.toObject(),
+            client: telemetryClient,
+            status: 'CONNECTING',
+          });
         }
-        this.isDiscovering = false;
-        console.log('🛑 Drone discovery service stopped');
+      });
+
+    } catch (error) {
+      console.error('Error during drone discovery:', error);
     }
+  }
 
-    /**
-     * Discover available drones by checking their status endpoints
-     */
-    async discoverDrones() {
-        const promises = [];
-        
-        for (let i = 1; i <= this.maxDrones; i++) {
-            const droneId = `DRONE-${i.toString().padStart(3, '0')}`;
-            const port = this.basePort + (i - 1);
-            promises.push(this.checkDroneAvailability(droneId, port));
-        }
+  /**
+   * Starts the periodic discovery process.
+   */
+  start(io) {
+    if (this.isDiscovering) return;
+    
+    this.isDiscovering = true;
+    console.log('🔍 Starting drone discovery service (checking every 30000ms)');
+    
+    // Run once immediately, then set an interval
+    this.discoverAndConnectDrones(io);
+    this.discoveryInterval = setInterval(() => this.discoverAndConnectDrones(io), 30000); // Check for new drones every 30 seconds
+  }
 
-        const results = await Promise.allSettled(promises);
-        
-        // Update discovered drones map
-        results.forEach((result, index) => {
-            const droneId = `DRONE-${(index + 1).toString().padStart(3, '0')}`;
-            const port = this.basePort + index;
-            
-            if (result.status === 'fulfilled' && result.value.available) {
-                this.discoveredDrones.set(droneId, {
-                    id: droneId,
-                    port: port,
-                    status: result.value.status,
-                    lastSeen: new Date(),
-                    available: true
-                });
-            } else {
-                // Remove from discovered drones if not available
-                if (this.discoveredDrones.has(droneId)) {
-                    this.discoveredDrones.delete(droneId);
-                }
-            }
-        });
-
-        console.log(`🔍 Discovery complete: ${this.discoveredDrones.size} drones available`);
+  /**
+   * Stops the discovery service
+   */
+  stop() {
+    if (this.discoveryInterval) {
+      clearInterval(this.discoveryInterval);
+      this.discoveryInterval = null;
     }
+    this.isDiscovering = false;
+    console.log('🛑 Drone discovery service stopped');
+  }
 
-    /**
-     * Check if a specific drone is available
-     */
-    async checkDroneAvailability(droneId, port) {
-        try {
-            const response = await fetch(`http://127.0.0.1:${port}/status`, {
-                method: 'GET',
-                timeout: 2000
-            });
+  /**
+   * Retrieves a list of all discovered drones and their current status.
+   */
+  getDiscoveredDrones() {
+    // Convert the Map to an array of drone objects for API responses
+    return Array.from(this.activeDrones.values()).map(drone => {
+        // Don't expose the client object in the API response
+        const { client, ...droneInfo } = drone;
+        return droneInfo;
+    });
+  }
 
-            if (response.ok) {
-                const status = await response.json();
-                return {
-                    available: true,
-                    status: status,
-                    port: port
-                };
-            } else {
-                return { available: false, port: port };
-            }
-        } catch (error) {
-            return { available: false, port: port, error: error.message };
-        }
+  /**
+   * Get a specific drone by ID
+   */
+  getDrone(droneId) {
+    const drone = this.activeDrones.get(droneId);
+    if (drone) {
+      const { client, ...droneInfo } = drone;
+      return droneInfo;
     }
+    return null;
+  }
 
-    /**
-     * Get all discovered drones
-     */
-    getDiscoveredDrones() {
-        return Array.from(this.discoveredDrones.values());
-    }
+  /**
+   * Check if a drone is available
+   */
+  isDroneAvailable(droneId) {
+    const drone = this.activeDrones.get(droneId);
+    return drone && drone.status === 'CONNECTED';
+  }
 
-    /**
-     * Get a specific drone by ID
-     */
-    getDrone(droneId) {
-        return this.discoveredDrones.get(droneId);
-    }
+  /**
+   * Get fleet overview
+   */
+  getFleetOverview() {
+    const drones = this.getDiscoveredDrones();
+    return {
+      totalDrones: drones.length,
+      connectedDrones: drones.filter(d => d.status === 'CONNECTED').length,
+      connectingDrones: drones.filter(d => d.status === 'CONNECTING').length,
+      drones: drones.map(drone => ({
+        droneId: drone.droneId,
+        model: drone.model,
+        status: drone.status,
+        wsUrl: drone.wsUrl,
+        lastSeen: drone.lastSeen
+      }))
+    };
+  }
 
-    /**
-     * Check if a drone is available
-     */
-    isDroneAvailable(droneId) {
-        const drone = this.discoveredDrones.get(droneId);
-        return drone && drone.available;
-    }
+  /**
+   * Force refresh discovery
+   */
+  async refreshDiscovery(io) {
+    console.log('🔄 Forcing drone discovery refresh...');
+    await this.discoverAndConnectDrones(io);
+    return this.getFleetOverview();
+  }
 
-    /**
-     * Get drone bridge URL for a specific drone
-     */
-    getDroneBridgeUrl(droneId, endpoint = 'drone/command') {
-        const drone = this.discoveredDrones.get(droneId);
-        if (!drone) {
-            throw new Error(`Drone ${droneId} not found in discovered drones`);
-        }
-        return `http://127.0.0.1:${drone.port}/${endpoint}`;
+  /**
+   * Add a new drone to the system
+   */
+  async addDrone(droneData) {
+    try {
+      const drone = new Drone(droneData);
+      await drone.save();
+      
+      console.log(`✅ Added new drone: ${drone.droneId}`);
+      return drone;
+    } catch (error) {
+      console.error('Error adding drone:', error);
+      throw new ApiError('Failed to add drone', 500, error.message);
     }
+  }
 
-    /**
-     * Get drone status URL
-     */
-    getDroneStatusUrl(droneId) {
-        return this.getDroneBridgeUrl(droneId, 'status');
+  /**
+   * Remove a drone from the system
+   */
+  async removeDrone(droneId) {
+    try {
+      const drone = await Drone.findOneAndDelete({ droneId });
+      if (!drone) {
+        throw new ApiError('Drone not found', 404, 'Drone does not exist');
+      }
+      
+      // Remove from active connections
+      if (this.activeDrones.has(droneId)) {
+        this.activeDrones.delete(droneId);
+      }
+      
+      console.log(`🗑️ Removed drone: ${droneId}`);
+      return drone;
+    } catch (error) {
+      console.error('Error removing drone:', error);
+      throw new ApiError('Failed to remove drone', 500, error.message);
     }
-
-    /**
-     * Get fleet overview
-     */
-    getFleetOverview() {
-        const drones = this.getDiscoveredDrones();
-        return {
-            totalDrones: drones.length,
-            availableDrones: drones.filter(d => d.available).length,
-            drones: drones.map(drone => ({
-                id: drone.id,
-                port: drone.port,
-                available: drone.available,
-                lastSeen: drone.lastSeen,
-                status: drone.status
-            }))
-        };
-    }
-
-    /**
-     * Force refresh discovery
-     */
-    async refreshDiscovery() {
-        console.log('🔄 Forcing drone discovery refresh...');
-        await this.discoverDrones();
-        return this.getFleetOverview();
-    }
+  }
 }
 
-// Export singleton instance
 export const droneDiscoveryService = new DroneDiscoveryService();
 export default droneDiscoveryService;

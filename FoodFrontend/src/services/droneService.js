@@ -7,14 +7,16 @@ import { api } from './api.js';
 class DroneService {
   /**
    * Start a drone mission with waypoints
+   * @param {string} droneId - Drone ID
    * @param {Array} waypoints - Array of waypoint objects with lat, lng properties
    * @returns {Promise<Object>} API response
    */
-  async startMission(waypoints) {
+  async startMission(droneId, waypoints) {
     try {
-      const response = await api.post('/api/v1/drone/mission/start', {
-        droneId: 'DRONE-001', // Default drone ID, could be made configurable
+      const response = await api.post(`/api/v1/test/drone/mission/start/${droneId}`, {
         waypoints: waypoints
+      }, {
+        headers: { 'x-test-mode': 'true' }
       });
       
       return {
@@ -34,12 +36,13 @@ class DroneService {
 
   /**
    * Command drone to return to launch
+   * @param {string} droneId - Drone ID
    * @returns {Promise<Object>} API response
    */
-  async returnToLaunch() {
+  async returnToLaunch(droneId) {
     try {
-      const response = await api.post('/api/v1/drone/mission/return-to-launch', {
-        droneId: 'DRONE-001' // Default drone ID, could be made configurable
+      const response = await api.post('/api/v1/test/drone/emergency-stop', {
+        droneId: droneId
       });
       
       return {
@@ -121,6 +124,8 @@ class DroneService {
     try {
       const response = await api.post(`/api/v1/test/drone/launch/${droneId}`, {
         altitude: altitude
+      }, {
+        headers: { 'x-test-mode': 'true' }
       });
       
       return {
@@ -145,7 +150,9 @@ class DroneService {
    */
   async landDrone(droneId) {
     try {
-      const response = await api.post(`/api/v1/test/drone/land/${droneId}`);
+      const response = await api.post(`/api/v1/test/drone/land/${droneId}`, {}, {
+        headers: { 'x-test-mode': 'true' }
+      });
       
       return {
         success: true,
@@ -169,7 +176,9 @@ class DroneService {
    */
   async emergencyStop(droneId) {
     try {
-      const response = await api.post(`/api/v1/test/drone/emergency/${droneId}`);
+      const response = await api.post(`/api/v1/test/drone/emergency-stop/${droneId}`, {}, {
+        headers: { 'x-test-mode': 'true' }
+      });
       
       return {
         success: true,
@@ -182,6 +191,58 @@ class DroneService {
         success: false,
         error: error.response?.data?.message || error.message,
         message: 'Failed to emergency stop drone'
+      };
+    }
+  }
+
+  /**
+   * Start demo mission for collision testing
+   * @param {string} droneId - Drone ID
+   * @returns {Promise<Object>} API response
+   */
+  async startDemoMission(droneId) {
+    try {
+      const response = await api.post(`/api/v1/test/drone/demo-mission/${droneId}`, {}, {
+        headers: { 'x-test-mode': 'true' }
+      });
+      
+      return {
+        success: true,
+        data: response.data,
+        message: 'Demo mission started successfully'
+      };
+    } catch (error) {
+      console.error('Failed to start demo mission:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message,
+        message: 'Failed to start demo mission'
+      };
+    }
+  }
+
+  /**
+   * Reset drone state
+   * @param {string} droneId - Drone ID
+   * @returns {Promise<Object>} API response
+   */
+  async resetDrone(droneId) {
+    try {
+      const response = await api.post(`/api/v1/test/drone/reset/${droneId}`, {}, {
+        headers: { 'x-test-mode': 'true' }
+      });
+      
+      return {
+        success: true,
+        data: response.data,
+        message: 'Drone reset command sent successfully'
+      };
+    } catch (error) {
+      console.error('Failed to reset drone:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message,
+        message: 'Failed to reset drone'
       };
     }
   }

@@ -99,57 +99,49 @@ router.get('/fleet/status', validateTestMode, async (req, res) => {
     }
 });
 
+// Get all drones (test endpoint - no auth required)
+router.get('/drones', validateTestMode, async (req, res) => {
+    try {
+        const drones = await Drone.find({ is_active: true }).select('-__v');
+        
+        res.status(200).json({
+            success: true,
+            message: 'Drones retrieved successfully',
+            data: drones
+        });
+        
+    } catch (error) {
+        logError('Failed to get drones', { error: error.message });
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get drones',
+            error: error.message
+        });
+    }
+});
+
 // Enhanced test endpoints that match PowerShell script expectations
 // Test routes - NO admin authentication required for testing convenience
 
 // Test drone launch with real drone bridge integration
-router.post('/launch/:orderId', validateTestMode, async (req, res) => {
+router.post('/launch/:droneId', validateTestMode, async (req, res) => {
     const logger = createOperationLogger('LAUNCH');
     
     try {
-        const { orderId } = req.params;
-        const { droneId, useRealOrder = false, altitude = 20 } = req.body;
+        const { droneId } = req.params;
+        const { altitude = 20 } = req.body;
         
-        logger.start(orderId, { droneId, useRealOrder, altitude });
+        logger.start(droneId, { altitude });
         
-        let actualDroneId = droneId || 'DRONE-001';
-        let actualOrderId = orderId;
+        let actualDroneId = droneId;
+        let actualOrderId = `TEST-${droneId}-${Date.now()}`;
         
-        // If using real order, find and validate it
-        if (useRealOrder) {
-            logInfo('Looking for real drone order', { orderId });
-            
-            const droneOrder = await DroneOrder.findOne({ orderId });
-            if (!droneOrder) {
-                logError('Drone order not found', { orderId });
-                return res.status(404).json({
-                    success: false,
-                    message: 'Drone order not found',
-                    data: { orderId }
-                });
-            }
-            
-            if (!droneOrder.droneId) {
-                logWarning('Order not assigned to a drone', { orderId, status: droneOrder.status });
-                return res.status(400).json({
-                    success: false,
-                    message: 'Order not assigned to a drone',
-                    data: { orderId, status: droneOrder.status }
-                });
-            }
-            
-            actualDroneId = droneOrder.droneId;
-            actualOrderId = droneOrder.orderId;
-            
-            logSuccess('Found real drone order', { orderId: actualOrderId, droneId: actualDroneId });
-        }
+        logInfo('Using test launch mode', { droneId: actualDroneId, orderId: actualOrderId });
         
         // Send command to drone bridge
-        const bridgeUrl = `http://127.0.0.1:${8001 + (actualDroneId === 'DRONE-002' ? 1 : 0)}/drone/command`;
+        const bridgeUrl = `http://127.0.0.1:${8001 + (actualDroneId === 'DRONE-002' ? 1 : 0)}/api/v1/commands/takeoff`;
         const command = {
-            action: 'takeoff',
             altitude: altitude,
-            orderId: actualOrderId,
             droneId: actualDroneId
         };
         
@@ -213,8 +205,8 @@ router.post('/launch/:orderId', validateTestMode, async (req, res) => {
         res.status(200).json(responseData);
         
     } catch (error) {
-        logError('Test launch failed', { orderId, error: error.message, stack: error.stack });
-        logger.error(orderId, error);
+        logError('Test launch failed', { droneId, error: error.message, stack: error.stack });
+        logger.error(droneId, error);
         
         res.status(500).json({
             success: false,
@@ -233,9 +225,8 @@ router.post('/land/:droneId', validateTestMode, async (req, res) => {
         
         logger.start(droneId);
         
-        const bridgeUrl = `http://127.0.0.1:${8001 + (droneId === 'DRONE-002' ? 1 : 0)}/drone/command`;
+        const bridgeUrl = `http://127.0.0.1:${8001 + (droneId === 'DRONE-002' ? 1 : 0)}/api/v1/commands/land`;
         const command = {
-            action: 'land',
             droneId: droneId
         };
         
@@ -308,9 +299,8 @@ router.post('/emergency-stop/:droneId', validateTestMode, async (req, res) => {
     try {
         const { droneId } = req.params;
         
-        const bridgeUrl = `http://127.0.0.1:${8001 + (droneId === 'DRONE-002' ? 1 : 0)}/drone/command`;
+        const bridgeUrl = `http://127.0.0.1:${8001 + (droneId === 'DRONE-002' ? 1 : 0)}/api/v1/commands/return-to-launch`;
         const command = {
-            action: 'emergency_stop',
             droneId: droneId
         };
         
@@ -357,6 +347,177 @@ router.post('/emergency-stop/:droneId', validateTestMode, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to execute emergency stop',
+            error: error.message
+        });
+    }
+});
+
+// Test demo mission for collision testing
+router.post('/demo-mission/:droneId', validateTestMode, async (req, res) => {
+    const logger = createOperationLogger('DEMO_MISSION');
+    
+    try {
+        const { droneId } = req.params;
+        
+        logger.start(droneId);
+        
+        const bridgeUrl = `http://127.0.0.1:${8001 + (droneId === 'DRONE-002' ? 1 : 0)}/api/v1/commands/demo-mission`;
+        const command = {
+            droneId: droneId
+        };
+        
+        logDroneBridge('Sending demo mission command', droneId, 'REQUEST', { bridgeUrl, command });
+        
+        const response = await fetch(bridgeUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(command)
+        });
+        
+        if (!response.ok) {
+            logError('Drone bridge communication failed', { 
+                status: response.status, 
+                statusText: response.statusText,
+                bridgeUrl 
+            });
+            throw new Error(`Drone bridge error: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        logDroneBridge('Received demo mission response', droneId, 'SUCCESS', result);
+        
+        // Update drone status
+        logInfo('Updating drone status in database', { droneId });
+        await Drone.findOneAndUpdate(
+            { droneId: droneId },
+            { 
+                status: 'mission_active',
+                inAir: true,
+                armed: true,
+                lastCommand: 'demo_mission',
+                lastCommandAt: new Date()
+            }
+        );
+        
+        // Emit real-time update
+        const io = getIo();
+        if (io) {
+            io.emit('drone:status', {
+                droneId: droneId,
+                status: 'mission_active'
+            });
+            logInfo('Socket.IO event emitted', { event: 'drone:status', droneId });
+        }
+        
+        const responseData = {
+            success: true,
+            message: `Demo mission started for ${droneId} - testing collision detection`,
+            data: { droneId, bridgeResponse: result }
+        };
+        
+        logger.success(droneId, responseData);
+        res.status(200).json(responseData);
+        
+    } catch (error) {
+        logError('Demo mission failed', { droneId, error: error.message, stack: error.stack });
+        logger.error(droneId, error);
+        
+        res.status(500).json({
+            success: false,
+            message: 'Failed to start demo mission',
+            error: error.message
+        });
+    }
+});
+
+// Test mission start with waypoints
+router.post('/mission/start/:droneId', validateTestMode, async (req, res) => {
+    const logger = createOperationLogger('MISSION_START');
+    
+    try {
+        const { droneId } = req.params;
+        const { waypoints = [] } = req.body;
+        
+        logger.start(droneId, { waypointCount: waypoints.length });
+        
+        if (!waypoints || waypoints.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No waypoints provided for mission'
+            });
+        }
+        
+        const bridgeUrl = `http://127.0.0.1:${8001 + (droneId === 'DRONE-002' ? 1 : 0)}/api/v1/commands/mission`;
+        const command = {
+            droneId: droneId,
+            waypoints: waypoints.map(wp => ({
+                lat: wp.lat,
+                lng: wp.lng,
+                altitude: 20 // Default altitude for waypoints
+            }))
+        };
+        
+        logDroneBridge('Sending mission command', droneId, 'REQUEST', { bridgeUrl, command });
+        
+        const response = await fetch(bridgeUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(command)
+        });
+        
+        if (!response.ok) {
+            logError('Drone bridge communication failed', { 
+                status: response.status, 
+                statusText: response.statusText,
+                bridgeUrl 
+            });
+            throw new Error(`Drone bridge error: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        // Update drone status
+        await Drone.findOneAndUpdate(
+            { droneId: droneId },
+            { 
+                status: 'mission_active',
+                inAir: true,
+                armed: true,
+                lastCommand: 'mission_start',
+                lastCommandAt: new Date()
+            }
+        );
+        
+        // Emit real-time update
+        const io = getIo();
+        if (io) {
+            io.emit('drone:status', {
+                droneId: droneId,
+                status: 'mission_active'
+            });
+            logInfo('Socket.IO event emitted', { event: 'drone:status', droneId });
+        }
+        
+        const responseData = {
+            success: true,
+            message: `Mission started for ${droneId} with ${waypoints.length} waypoints`,
+            data: { 
+                droneId, 
+                waypointCount: waypoints.length,
+                bridgeResponse: result 
+            }
+        };
+        
+        logger.success(droneId, responseData);
+        res.status(200).json(responseData);
+        
+    } catch (error) {
+        logError('Mission start failed', { droneId, error: error.message, stack: error.stack });
+        logger.error(droneId, error);
+        
+        res.status(500).json({
+            success: false,
+            message: 'Failed to start mission',
             error: error.message
         });
     }
@@ -1347,6 +1508,79 @@ async function handleStopCameraViewsCommand(droneId) {
         data: result
     };
 }
+
+// Test drone reset
+router.post('/reset/:droneId', validateTestMode, async (req, res) => {
+    const logger = createOperationLogger('RESET');
+    
+    try {
+        const { droneId } = req.params;
+        
+        logger.start(droneId);
+        
+        const bridgeUrl = `http://127.0.0.1:${8001 + (droneId === 'DRONE-002' ? 1 : 0)}/api/v1/commands/reset`;
+        
+        logDroneBridge('Sending reset command', droneId, 'REQUEST', { bridgeUrl });
+        
+        const response = await fetch(bridgeUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        
+        if (!response.ok) {
+            logError('Drone bridge communication failed', {
+                status: response.status,
+                statusText: response.statusText,
+                bridgeUrl
+            });
+            throw new Error(`Drone bridge error: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        // Update drone status in database
+        await Drone.findOneAndUpdate(
+            { droneId: droneId },
+            {
+                status: 'idle',
+                inAir: false,
+                armed: false,
+                lastCommand: 'reset',
+                lastCommandAt: new Date()
+            }
+        );
+        
+        // Emit real-time update
+        const io = getIo();
+        if (io) {
+            io.emit('drone:status', {
+                droneId: droneId,
+                status: 'idle'
+            });
+            logInfo('Socket.IO event emitted', { event: 'drone:status', droneId });
+        }
+        
+        const responseData = {
+            success: true,
+            message: `Drone reset command sent to ${droneId}`,
+            data: { droneId, bridgeResponse: result }
+        };
+        
+        logger.success(droneId, responseData);
+        res.status(200).json(responseData);
+        
+    } catch (error) {
+        logError('Drone reset failed', { droneId, error: error.message, stack: error.stack });
+        logger.error(droneId, error);
+        
+        res.status(500).json({
+            success: false,
+            message: 'Failed to reset drone',
+            error: error.message
+        });
+    }
+});
 
 
 export default router;

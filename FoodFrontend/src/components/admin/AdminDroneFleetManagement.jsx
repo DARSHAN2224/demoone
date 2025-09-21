@@ -1,572 +1,304 @@
 import React, { useState, useEffect } from 'react';
-import { useAuthStore } from '../../stores/authStore';
-import { api } from '../../stores/api';
-import { 
-    MapPin, 
-    Clock, 
-    Battery, 
-    Navigation, 
-    CheckCircle, 
-    XCircle, 
-    AlertCircle,
-    Truck,
-    Drone,
-    Settings,
-    Wrench,
-    Activity,
-    TrendingUp,
-    RefreshCw,
-    Eye,
-    BarChart3,
-    Shield,
-    Zap,
-    Thermometer,
-    Gauge
-} from 'lucide-react';
+import { api } from '../../services/api';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../ui/card';
+import { Badge } from '../ui/badge';
+import { AlertTriangle, PlusCircle, Trash2, RefreshCw, Drone, Wifi, WifiOff } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 const AdminDroneFleetManagement = () => {
-    const { admin } = useAuthStore();
-    const [fleetOverview, setFleetOverview] = useState(null);
-    const [maintenanceDrones, setMaintenanceDrones] = useState([]);
-    const [realTimeLocations, setRealTimeLocations] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('overview');
-    const [selectedDrone, setSelectedDrone] = useState(null);
-    const [autoRefresh, setAutoRefresh] = useState(true);
-    const [lastUpdate, setLastUpdate] = useState(null);
+  const [drones, setDrones] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  
+  // State for the new drone form
+  const [newDroneId, setNewDroneId] = useState('');
+  const [newWsUrl, setNewWsUrl] = useState('');
+  const [newModel, setNewModel] = useState('Generic Drone');
+  const [formError, setFormError] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
 
-    useEffect(() => {
-        if (admin) {
-            loadFleetData();
-        }
-    }, [admin]);
-
-    useEffect(() => {
-        let interval;
-        if (autoRefresh) {
-            interval = setInterval(() => {
-                loadFleetData();
-            }, 15000); // Refresh every 15 seconds
-        }
-        return () => clearInterval(interval);
-    }, [autoRefresh]);
-
-    const loadFleetData = async () => {
-        try {
-            const [overviewRes, maintenanceRes, locationsRes] = await Promise.all([
-                api.get('/drone/admin/fleet-overview'),
-                api.get('/drone/admin/maintenance-needed'),
-                api.get('/drone/telemetry/locations')
-            ]);
-
-            setFleetOverview(overviewRes.data.data);
-            setMaintenanceDrones(maintenanceRes.data.data.maintenanceDrones || []);
-            setRealTimeLocations(locationsRes.data.data.activeDrones || []);
-            setLastUpdate(new Date());
-        } catch (error) {
-            console.error('Failed to load fleet data:', error);
+  // Function to fetch the list of drones from the backend
+  const fetchDrones = async () => {
+    setIsLoading(true);
+    setError('');
+    try {
+      const response = await api.get('/api/v1/admin/drones');
+      setDrones(response.data.data || []);
+    } catch (err) {
+      setError('Failed to fetch drone fleet. Please ensure the backend is running.');
+      console.error('Error fetching drones:', err);
         } finally {
-            setLoading(false);
-        }
-        };
-
-    const getOperationalStatusColor = (status) => {
-        const statusColors = {
-            'operational': 'text-green-600',
-            'maintenance_required': 'text-yellow-600',
-            'emergency': 'text-red-600',
-            'offline': 'text-gray-600'
-        };
-        return statusColors[status] || 'text-gray-600';
-    };
-
-    const getOperationalStatusIcon = (status) => {
-        const statusIcons = {
-            'operational': <CheckCircle className="w-5 h-5" />,
-            'maintenance_required': <Wrench className="w-5 h-5" />,
-            'emergency': <AlertCircle className="w-5 h-5" />,
-            'offline': <XCircle className="w-5 h-5" />
-        };
-        return statusIcons[status] || <AlertCircle className="w-5 h-5" />;
-    };
-
-    const getBatteryColor = (battery) => {
-        if (battery <= 20) return 'text-red-600';
-        if (battery <= 40) return 'text-orange-600';
-        if (battery <= 70) return 'text-yellow-600';
-        return 'text-green-600';
-    };
-
-    const getHealthScoreColor = (score) => {
-        if (score >= 80) return 'text-green-600';
-        if (score >= 60) return 'text-yellow-600';
-        return 'text-red-600';
-    };
-
-    const formatStatus = (status) => {
-        return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    };
-
-    const formatTime = (timeString) => {
-        if (!timeString) return 'TBD';
-        return new Date(timeString).toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    };
-
-    const formatDate = (dateString) => {
-        if (!dateString) return 'TBD';
-        return new Date(dateString).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-        });
-    };
-
-    const FleetOverviewCard = () => {
-        if (!fleetOverview) return null;
-
-        const { fleet, recentDeliveries } = fleetOverview;
-        const operationalPercentage = fleet.totalDrones > 0 ? 
-            Math.round((fleet.operationalDrones / fleet.totalDrones) * 100) : 0;
-
-        return (
-            <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-xl font-semibold text-gray-900 mb-4">Fleet Overview</h3>
-                
-                {/* Fleet Statistics */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <div className="text-center p-4 bg-blue-50 rounded-lg">
-                        <div className="text-2xl font-bold text-primary-600">{fleet.totalDrones}</div>
-                        <div className="text-sm text-gray-600">Total Drones</div>
-                    </div>
-                    <div className="text-center p-4 bg-green-50 rounded-lg">
-                        <div className="text-2xl font-bold text-green-600">{fleet.operationalDrones}</div>
-                        <div className="text-sm text-gray-600">Operational</div>
-                    </div>
-                    <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                        <div className="text-2xl font-bold text-yellow-600">{fleet.maintenanceDrones}</div>
-                        <div className="text-sm text-gray-600">Maintenance</div>
-                    </div>
-                    <div className="text-center p-4 bg-red-50 rounded-lg">
-                        <div className="text-2xl font-bold text-red-600">{fleet.emergencyDrones}</div>
-                        <div className="text-sm text-gray-600">Emergency</div>
-                    </div>
-                </div>
-
-                {/* Fleet Health */}
-                <div className="mb-6">
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-gray-700">Fleet Health</span>
-                        <span className="text-sm font-medium text-gray-900">{operationalPercentage}%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div 
-                            className={`h-2 rounded-full ${
-                                operationalPercentage >= 80 ? 'bg-green-600' : 
-                                operationalPercentage >= 60 ? 'bg-yellow-600' : 'bg-red-600'
-                            }`}
-                            style={{ width: `${operationalPercentage}%` }}
-                        ></div>
-                    </div>
-                </div>
-
-                {/* Performance Metrics */}
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                        <div className="flex items-center space-x-2 mb-2">
-                            <Battery className="w-4 h-4 text-gray-500" />
-                            <span className="text-sm font-medium text-gray-700">Avg Battery</span>
-                        </div>
-                        <div className="text-lg font-semibold text-gray-900">
-                            {Math.round(fleet.avgBattery || 0)}%
-                        </div>
-                    </div>
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                        <div className="flex items-center space-x-2 mb-2">
-                            <Shield className="w-4 h-4 text-gray-500" />
-                            <span className="text-sm font-medium text-gray-700">Avg Health</span>
-                        </div>
-                        <div className="text-lg font-semibold text-gray-900">
-                            {Math.round(fleet.avgHealthScore || 0)}%
-                        </div>
-                    </div>
-                </div>
-
-                {/* Recent Deliveries */}
-                {recentDeliveries && recentDeliveries.length > 0 && (
-                    <div>
-                        <h4 className="text-sm font-medium text-gray-700 mb-3">Recent Deliveries</h4>
-                        <div className="space-y-2">
-                            {recentDeliveries.slice(0, 3).map((delivery, index) => (
-                                <div key={index} className="flex items-center justify-between text-sm">
-                                    <span className="text-gray-600">Order #{delivery.orderId}</span>
-                                    <span className="text-gray-500">
-                                        {formatTime(delivery.deliveredAt)}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
-        );
-    };
-
-    const MaintenanceDroneCard = ({ drone }) => (
-        <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-yellow-500">
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-3">
-                    {getOperationalStatusIcon(drone.operationalStatus)}
-                    <div>
-                        <h3 className="font-semibold text-gray-900">
-                            {drone.name} ({drone.droneId})
-                        </h3>
-                        <p className={`text-sm font-medium ${getOperationalStatusColor(drone.operationalStatus)}`}>
-                            {formatStatus(drone.operationalStatus)}
-                        </p>
-                    </div>
-                </div>
-                <div className="text-right">
-                    <div className={`text-2xl font-bold ${getHealthScoreColor(drone.healthScore)}`}>
-                        {drone.healthScore}%
-                    </div>
-                    <div className="text-xs text-gray-500">Health</div>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="flex items-center space-x-2">
-                    <Battery className="w-4 h-4 text-gray-500" />
-                    <span className="text-sm text-gray-600">
-                        {drone.battery}% Battery
-                    </span>
-                </div>
-                <div className="flex items-center space-x-2">
-                    <Wrench className="w-4 h-4 text-gray-500" />
-                    <span className="text-sm text-gray-600">
-                        {drone.criticalErrors} Critical Errors
-                    </span>
-                </div>
-            </div>
-
-            <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                    <span className="text-gray-600">Last Maintenance:</span>
-                    <span className="text-gray-900">
-                        {drone.lastMaintenance ? formatDate(drone.lastMaintenance) : 'Never'}
-                    </span>
-                </div>
-                <div className="flex justify-between">
-                    <span className="text-gray-600">Next Maintenance:</span>
-                    <span className="text-gray-900">
-                        {drone.nextMaintenance ? formatDate(drone.nextMaintenance) : 'TBD'}
-                    </span>
-                </div>
-            </div>
-
-            <div className="mt-4 pt-4 border-t border-gray-200">
-                <button
-                    onClick={() => setSelectedDrone(drone)}
-                    className="w-full bg-yellow-600 text-white py-2 px-4 rounded-md hover:bg-yellow-700 transition-colors"
-                >
-                    <Eye className="w-4 h-4 inline mr-2" />
-                    View Details
-                </button>
-            </div>
-        </div>
-    );
-
-    const RealTimeDroneCard = ({ drone }) => (
-        <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-3">
-                    <Drone className="w-6 h-6 text-primary-600" />
-                    <div>
-                        <h3 className="font-semibold text-gray-900">
-                            {drone.name} ({drone.droneId})
-                        </h3>
-                        <p className="text-sm font-medium text-primary-600">
-                            {formatStatus(drone.status)}
-                        </p>
-                    </div>
-                </div>
-                <div className="text-right">
-                    <div className={`text-2xl font-bold ${getBatteryColor(drone.battery)}`}>
-                        {drone.battery}%
-                    </div>
-                    <div className="text-xs text-gray-500">Battery</div>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="flex items-center space-x-2">
-                    <MapPin className="w-4 h-4 text-gray-500" />
-                    <span className="text-sm text-gray-600">
-                        {drone.location?.altitude || 0}m Altitude
-                    </span>
-                </div>
-                <div className="flex items-center space-x-2">
-                    <Navigation className="w-4 h-4 text-gray-500" />
-                    <span className="text-sm text-gray-600">
-                        {drone.location?.speed || 0} m/s Speed
-                    </span>
-                </div>
-                <div className="flex items-center space-x-2">
-                    <TrendingUp className="w-4 h-4 text-gray-500" />
-                    <span className="text-sm text-gray-600">
-                        {drone.location?.heading || 0}° Heading
-                    </span>
-                </div>
-                <div className="flex items-center space-x-2">
-                    <Activity className="w-4 h-4 text-gray-500" />
-                    <span className="text-sm text-gray-600">
-                        {drone.flightMode || 'Unknown'}
-                    </span>
-                </div>
-            </div>
-
-            <div className="text-sm text-gray-500 mb-4">
-                Last active: {drone.lastActive ? formatTime(drone.lastActive) : 'Unknown'}
-            </div>
-
-            <div className="flex space-x-3">
-                <button
-                    onClick={() => setSelectedDrone(drone)}
-                    className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
-                >
-                    <Eye className="w-4 h-4 inline mr-2" />
-                    Track
-                </button>
-                
-                <button
-                    onClick={loadFleetData}
-                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
-                >
-                    <RefreshCw className="w-4 h-4" />
-                </button>
-            </div>
-        </div>
-    );
-
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center min-h-64">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            </div>
-        );
+      setIsLoading(false);
     }
+  };
 
+  // Fetch drones when the component mounts
+  useEffect(() => {
+    fetchDrones();
+  }, []);
+
+  const handleAddDrone = async (e) => {
+    e.preventDefault();
+    if (!newDroneId || !newWsUrl) {
+        setFormError('Both Drone ID and WebSocket URL are required.');
+        return;
+    }
+    
+    setFormError('');
+    setIsAdding(true);
+    
+    try {
+        const response = await api.post('/api/v1/admin/drones', { 
+          droneId: newDroneId, 
+          wsUrl: newWsUrl,
+          model: newModel
+        });
+        
+        toast.success('Drone added successfully!');
+        setNewDroneId('');
+        setNewWsUrl('');
+        setNewModel('Generic Drone');
+        fetchDrones(); // Refresh the list after adding
+    } catch (err) {
+        const errorMessage = err.response?.data?.message || 'Failed to add drone.';
+        setFormError(errorMessage);
+        toast.error(errorMessage);
+    } finally {
+        setIsAdding(false);
+    }
+  };
+
+  const handleRemoveDrone = async (droneId) => {
+    if (!window.confirm(`Are you sure you want to remove ${droneId}?`)) {
+      return;
+    }
+    
+    try {
+      await api.delete(`/api/v1/admin/drones/${droneId}`);
+      toast.success('Drone removed successfully!');
+      fetchDrones(); // Refresh the list after removal
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to remove drone.';
+      toast.error(errorMessage);
+    }
+  };
+
+  const getStatusBadge = (status) => {
+    const statusConfig = {
+      'CONNECTED': { variant: 'default', color: 'text-green-400', icon: Wifi },
+      'CONNECTING': { variant: 'secondary', color: 'text-yellow-400', icon: RefreshCw },
+      'DISCONNECTED': { variant: 'destructive', color: 'text-red-400', icon: WifiOff },
+      'ERROR': { variant: 'destructive', color: 'text-red-400', icon: AlertTriangle },
+      'offline': { variant: 'destructive', color: 'text-red-400', icon: WifiOff },
+      'active': { variant: 'default', color: 'text-green-400', icon: Wifi }
+    };
+    
+    const config = statusConfig[status] || statusConfig['offline'];
+    const IconComponent = config.icon;
+
+        return (
+      <Badge variant={config.variant} className={`flex items-center space-x-1 ${config.color}`}>
+        <IconComponent className="w-3 h-3" />
+        <span>{status}</span>
+      </Badge>
+    );
+  };
+
+  if (isLoading) {
     return (
-        <div className="max-w-7xl mx-auto px-4 py-8">
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                    🚁 Drone Fleet Management
-                </h1>
-                <p className="text-gray-600">
-                    Monitor and manage your entire drone fleet in real-time
-                </p>
+      <div className="container mx-auto p-6">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4 text-cyan-400" />
+            <p className="text-gray-400">Loading drone fleet...</p>
+                    </div>
+                </div>
+                    </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="text-center p-8">
+          <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-red-400 mb-2">Error Loading Fleet</h2>
+          <p className="text-gray-400 mb-4">{error}</p>
+          <Button onClick={fetchDrones} variant="outline">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Retry
+          </Button>
+            </div>
+        </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto p-6 space-y-6">
+      <div className="flex items-center justify-between">
+                    <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Drone Fleet Management</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-2">Manage your drone fleet and monitor real-time connections</p>
+                </div>
+                <div className="flex items-center space-x-2">
+          <Badge variant="outline" className="flex items-center space-x-1">
+            <Drone className="w-3 h-3" />
+            <span>{drones.length} drones</span>
+          </Badge>
+          <Button onClick={fetchDrones} variant="outline" size="sm">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+                </div>
             </div>
 
-            {/* Controls */}
-            <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center space-x-4">
-                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={autoRefresh}
-                            onChange={(e) => setAutoRefresh(e.target.checked)}
-                            className="rounded text-primary-600"
-                        />
-                        <span className="text-sm text-gray-700">Auto-refresh every 15s</span>
-                    </label>
-                    
-                    <button
-                        onClick={loadFleetData}
-                        className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+      {/* Form to Add a New Drone */}
+      <Card className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+        <CardHeader>
+          <CardTitle className="text-xl text-gray-900 dark:text-white flex items-center space-x-2">
+            <PlusCircle className="w-5 h-5 text-cyan-400" />
+            <span>Add New Drone</span>
+          </CardTitle>
+          <CardDescription className="text-gray-600 dark:text-gray-400">
+            Register a new drone in your fleet by providing its unique identifier and WebSocket URL
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleAddDrone} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="droneId" className="text-gray-700 dark:text-gray-300">Drone ID</Label>
+                <Input
+                  id="droneId"
+                  placeholder="DRONE-002"
+                  value={newDroneId}
+                  onChange={(e) => setNewDroneId(e.target.value)}
+                  className="bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600"
+                  required
+                />
+                </div>
+              <div className="space-y-2">
+                <Label htmlFor="wsUrl" className="text-gray-700 dark:text-gray-300">WebSocket URL</Label>
+                <Input
+                  id="wsUrl"
+                  placeholder="ws://localhost:8002"
+                  value={newWsUrl}
+                  onChange={(e) => setNewWsUrl(e.target.value)}
+                  className="bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600"
+                  required
+                />
+            </div>
+              <div className="space-y-2">
+                <Label htmlFor="model" className="text-gray-700 dark:text-gray-300">Model</Label>
+                <Input
+                  id="model"
+                  placeholder="Generic Drone"
+                  value={newModel}
+                  onChange={(e) => setNewModel(e.target.value)}
+                  className="bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600"
+                />
+            </div>
+        </div>
+            {formError && (
+              <p className="text-sm text-red-500 flex items-center">
+                <AlertTriangle className="mr-2 h-4 w-4"/>
+                {formError}
+              </p>
+            )}
+            <Button 
+              type="submit" 
+              className="bg-cyan-600 hover:bg-cyan-700 text-white"
+              disabled={isAdding}
+            >
+              {isAdding ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <PlusCircle className="mr-2 h-4 w-4"/>
+                  Add Drone
+                </>
+              )}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+      
+      {/* List of Existing Drones */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Fleet Overview</h2>
+          <Badge variant="outline" className="text-gray-600 dark:text-gray-400">
+            {drones.length} {drones.length === 1 ? 'drone' : 'drones'} registered
+          </Badge>
+            </div>
+
+        {drones.length === 0 ? (
+          <Card className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+            <CardContent className="pt-6">
+              <div className="text-center py-8">
+                <Drone className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No Drones Registered</h3>
+                <p className="text-gray-500 dark:text-gray-400 mb-4">
+                  Add your first drone to start managing your fleet
+                            </p>
+                        </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {drones.map(drone => (
+              <Card key={drone.droneId} className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg text-gray-900 dark:text-white flex items-center space-x-2">
+                      <Drone className="w-5 h-5 text-cyan-400" />
+                      <span>{drone.droneId}</span>
+                    </CardTitle>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleRemoveDrone(drone.droneId)}
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
                     >
-                        <RefreshCw className="w-4 h-4" />
-                        <span>Refresh Now</span>
-                    </button>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                 </div>
-
-                {lastUpdate && (
-                    <div className="text-sm text-gray-500">
-                        Last updated: {formatTime(lastUpdate)}
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500 dark:text-gray-400">Status:</span>
+                      {getStatusBadge(drone.status)}
                     </div>
-                )}
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500 dark:text-gray-400">Model:</span>
+                      <span className="text-gray-900 dark:text-white font-medium">{drone.model}</span>
             </div>
-
-            {/* Fleet Overview */}
-            <div className="mb-8">
-                <FleetOverviewCard />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500 dark:text-gray-400">WebSocket:</span>
+                      <span className="text-gray-900 dark:text-white font-mono text-xs">{drone.wsUrl}</span>
             </div>
-
-            {/* Tab Navigation */}
-            <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6">
-                <button
-                    onClick={() => setActiveTab('maintenance')}
-                    className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                        activeTab === 'maintenance'
-                            ? 'bg-white text-primary-600 shadow-sm'
-                            : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                >
-                    Maintenance Needed ({maintenanceDrones.length})
-                </button>
-                <button
-                    onClick={() => setActiveTab('realtime')}
-                    className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                        activeTab === 'realtime'
-                            ? 'bg-white text-primary-600 shadow-sm'
-                            : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                >
-                    Real-time Locations ({realTimeLocations.length})
-                </button>
-            </div>
-
-            {/* Content */}
-            {activeTab === 'maintenance' ? (
-                <div>
-                    {maintenanceDrones.length === 0 ? (
-                        <div className="text-center py-12">
-                            <Wrench className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                            <h3 className="text-lg font-medium text-gray-900 mb-2">
-                                No Maintenance Required
-                            </h3>
-                            <p className="text-gray-600">
-                                All drones are in good operational condition.
-                            </p>
+                    {drone.lastSeen && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500 dark:text-gray-400">Last Seen:</span>
+                        <span className="text-gray-900 dark:text-white text-xs">
+                          {new Date(drone.lastSeen).toLocaleString()}
+                        </span>
                         </div>
-                    ) : (
-                        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                            {maintenanceDrones.map((drone) => (
-                                <MaintenanceDroneCard 
-                                    key={drone._id} 
-                                    drone={drone}
-                                />
+                    )}
+                </div>
+                </CardContent>
+              </Card>
                             ))}
                         </div>
                     )}
                 </div>
-            ) : (
-                <div>
-                    {realTimeLocations.length === 0 ? (
-                        <div className="text-center py-12">
-                            <Drone className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                            <h3 className="text-lg font-medium text-gray-900 mb-2">
-                                No Active Drones
-                            </h3>
-                            <p className="text-gray-600">
-                                No drones are currently in flight or active.
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                            {realTimeLocations.map((drone) => (
-                                <RealTimeDroneCard 
-                                    key={drone._id} 
-                                    drone={drone}
-                                />
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* Drone Details Modal */}
-            {selectedDrone && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold">
-                                Drone Details - {selectedDrone.name} ({selectedDrone.droneId})
-                            </h3>
-                            <button
-                                onClick={() => setSelectedDrone(null)}
-                                className="text-gray-500 hover:text-gray-700"
-                            >
-                                <XCircle className="w-6 h-6" />
-                            </button>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {/* Basic Information */}
-                            <div className="space-y-4">
-                                <div className="bg-gray-100 rounded-lg p-4">
-                                    <h4 className="font-medium text-gray-900 mb-2">Basic Information</h4>
-                                    <div className="space-y-2 text-sm">
-                                        <div><span className="text-gray-600">Model:</span> <span className="ml-2">{selectedDrone.model || 'Unknown'}</span></div>
-                                        <div><span className="text-gray-600">Serial:</span> <span className="ml-2">{selectedDrone.serialNumber || 'Unknown'}</span></div>
-                                        <div><span className="text-gray-600">Status:</span> <span className="ml-2">{formatStatus(selectedDrone.status)}</span></div>
-                                        <div><span className="text-gray-600">Operational:</span> <span className="ml-2">{formatStatus(selectedDrone.operationalStatus)}</span></div>
-                                    </div>
-                                </div>
-
-                                <div className="bg-blue-50 rounded-lg p-4">
-                                    <h4 className="font-medium text-blue-900 mb-2">Current Location</h4>
-                                    <div className="space-y-2 text-sm">
-                                        <div><span className="text-gray-600">Latitude:</span> <span className="ml-2">{selectedDrone.location?.lat || 'Unknown'}</span></div>
-                                        <div><span className="text-gray-600">Longitude:</span> <span className="ml-2">{selectedDrone.location?.lng || 'Unknown'}</span></div>
-                                        <div><span className="text-gray-600">Altitude:</span> <span className="ml-2">{selectedDrone.location?.altitude || 0}m</span></div>
-                                        <div><span className="text-gray-600">Speed:</span> <span className="ml-2">{selectedDrone.location?.speed || 0} m/s</span></div>
-                                        <div><span className="text-gray-600">Heading:</span> <span className="ml-2">{selectedDrone.location?.heading || 0}°</span></div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Performance & Health */}
-                            <div className="space-y-4">
-                                <div className="bg-green-50 rounded-lg p-4">
-                                    <h4 className="font-medium text-green-900 mb-2">Performance</h4>
-                                    <div className="space-y-2 text-sm">
-                                        <div><span className="text-gray-600">Battery:</span> <span className="ml-2">{selectedDrone.battery}%</span></div>
-                                        <div><span className="text-gray-600">Health Score:</span> <span className="ml-2">{selectedDrone.maintenance?.healthScore || 0}%</span></div>
-                                        <div><span className="text-gray-600">Flight Hours:</span> <span className="ml-2">{selectedDrone.maintenance?.totalFlightHours || 0}h</span></div>
-                                        <div><span className="text-gray-600">Total Flights:</span> <span className="ml-2">{selectedDrone.maintenance?.totalFlights || 0}</span></div>
-                                    </div>
-                                </div>
-
-                                <div className="bg-yellow-50 rounded-lg p-4">
-                                    <h4 className="font-medium text-yellow-900 mb-2">Maintenance</h4>
-                                    <div className="space-y-2 text-sm">
-                                        <div><span className="text-gray-600">Last Maintenance:</span> <span className="ml-2">{selectedDrone.maintenance?.lastMaintenance ? formatDate(selectedDrone.maintenance.lastMaintenance) : 'Never'}</span></div>
-                                        <div><span className="text-gray-600">Next Maintenance:</span> <span className="ml-2">{selectedDrone.maintenance?.nextMaintenance ? formatDate(selectedDrone.maintenance.nextMaintenance) : 'TBD'}</span></div>
-                                        <div><span className="text-gray-600">Critical Errors:</span> <span className="ml-2">{selectedDrone.errors?.filter(e => e.severity === 'critical' && !e.resolved).length || 0}</span></div>
-                                    </div>
-                                </div>
-
-                                <div className="bg-red-50 rounded-lg p-4">
-                                    <h4 className="font-medium text-red-900 mb-2">Flight Status</h4>
-                                    <div className="space-y-2 text-sm">
-                                        <div><span className="text-gray-600">Flight Mode:</span> <span className="ml-2">{selectedDrone.flightMode || 'Unknown'}</span></div>
-                                        <div><span className="text-gray-600">Armed:</span> <span className="ml-2">{selectedDrone.armed ? 'Yes' : 'No'}</span></div>
-                                        <div><span className="text-gray-600">In Air:</span> <span className="ml-2">{selectedDrone.inAir ? 'Yes' : 'No'}</span></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">
-                            <button
-                                onClick={loadFleetData}
-                                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                            >
-                                <RefreshCw className="w-4 h-4 inline mr-2" />
-                                Refresh
-                            </button>
-                            <button
-                                onClick={() => setSelectedDrone(null)}
-                                className="px-4 py-2 text-gray-600 hover:text-gray-800"
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

@@ -544,18 +544,19 @@ export const cancelOrder = asyncHandler(async (req, res) => {
 // Get order tracking information
 export const getOrderTracking = asyncHandler(async (req, res) => {
     const { orderId } = req.params;
-    const userId = req.user._id;
+    const userId = req.user?._id; // Optional for public access
 
     const order = await Order.findById(orderId)
         .populate('shops.shopId', 'name location')
-        .populate('delivery.driverId', 'name phone vehicleNumber');
+        .populate('delivery.driverId', 'name phone vehicleNumber')
+        .populate('assignedDroneId', 'droneId name model status location batteryLevel');
 
     if (!order) {
         throw new ApiError(404, "Order not found");
     }
 
-    // Check access permissions
-    if (order.user.toString() !== userId.toString() && req.user?.role !== 'admin' && req.user?.role !== 'seller') {
+    // Check access permissions (only if user is authenticated)
+    if (userId && order.user.toString() !== userId.toString() && req.user?.role !== 'admin' && req.user?.role !== 'seller') {
         throw new ApiError(403, "Access denied");
     }
 
@@ -572,15 +573,35 @@ export const getOrderTracking = asyncHandler(async (req, res) => {
         delivery: order.estimatedDeliveryTime
     };
 
-    res.status(200).json(new ApiResponse(200, {
-        order,
+    // Format response for frontend
+    const responseData = {
+        orderId: order._id,
+        shortId: order.shortId || order._id.toString().slice(-8).toUpperCase(),
+        status: order.status,
+        assignedDroneId: order.assignedDroneId?._id,
+        droneInfo: order.assignedDroneId ? {
+            droneId: order.assignedDroneId.droneId,
+            name: order.assignedDroneId.name,
+            model: order.assignedDroneId.model,
+            status: order.assignedDroneId.status,
+            batteryLevel: order.assignedDroneId.batteryLevel
+        } : null,
+        shopName: order.shops?.[0]?.shopId?.name || 'Restaurant',
+        deliveryAddress: order.deliveryAddress,
+        pickupLocation: order.shops?.[0]?.shopId?.location,
+        deliveryLocation: order.deliveryLocation,
+        estimatedDeliveryTime: order.estimatedDeliveryTime,
+        totalPrice: order.totalPrice,
+        items: order.items,
         tracking: {
             currentStatus: order.status,
             deliveryProgress,
             estimatedTimes,
             timeline: order.statusHistory || []
         }
-    }, 'Order tracking information retrieved successfully'));
+    };
+
+    res.status(200).json(new ApiResponse(200, responseData, 'Order tracking information retrieved successfully'));
 });
 
 // ==================== ORDER ANALYTICS ====================

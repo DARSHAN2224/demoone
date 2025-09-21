@@ -7,12 +7,20 @@ export const onlyAdminAccess = asyncHandler(async (req, res, next) => {
         hasAdmin: Boolean(req.admin), 
         hasUser: Boolean(req.user), 
         userRole: req.user?.role,
+        adminRole: req.admin?.role,
         adminId: req.admin?._id 
     });
     
+    // Check if user is admin through either req.admin or req.user.role === 1
     const isAdmin = Boolean(req.admin) || req.user?.role === 1;
     if (!isAdmin) {
         throw new ApiError("Access denied", 403, "You have not permission to access this route!");
+    }
+    
+    // If we have an admin object, also set the user role for consistency
+    if (req.admin && !req.user?.role) {
+        req.user = req.user || {};
+        req.user.role = req.admin.role;
     }
     
     console.log('✅ Admin access granted');
