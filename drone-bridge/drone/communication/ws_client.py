@@ -1,77 +1,58 @@
-# drone/communication/ws_client.py
 import asyncio
-import json
 import websockets
+import json
 import logging
-from typing import Callable
 
-# --- Project Imports ---
-from config.config import FOOD_APP_WS_URL
-
-log = logging.getLogger("ws_client")
-
-class WSClient:
-    def __init__(self, on_command_callback: Callable):
-        self.ws_url = FOOD_APP_WS_URL
-        self.websocket: websockets.WebSocketClientProtocol = None
-        self.on_command = on_command_callback
+class WebSocketClient:
+    """
+    Manages the WebSocket connection to the Node.js backend, handling sending
+    of structured messages like telemetry and mission updates.
+    """
+    def __init__(self, uri):
+        self.uri = uri
+        self.websocket = None
         self.is_connected = False
 
     async def connect(self):
-        """
-        Connects to the backend WebSocket and enters a reconnect loop.
-        """
+        """Establishes connection to the backend and keeps it alive."""
         while True:
             try:
-                log.info(f"🔌 Connecting to Food App backend: {self.ws_url}")
-                async with websockets.connect(self.ws_url) as ws:
-                    self.websocket = ws
-                    self.is_connected = True
-                    log.info("✅ Connected to Food App backend")
-                    await self._receive_loop()
+                logging.info(f"Attempting to connect to WebSocket at {self.uri}...")
+                self.websocket = await websockets.connect(self.uri)
+                self.is_connected = True
+                logging.info(f"Successfully connected to WebSocket at {self.uri}")
+                # Keep the connection alive by waiting for it to close
+                await self.websocket.wait_closed()
+            except (websockets.exceptions.ConnectionClosedError, ConnectionRefusedError) as e:
+                logging.warning(f"WebSocket connection lost or refused: {e}. Retrying in 5 seconds...")
             except Exception as e:
-                log.warning(f"❌ Failed to connect to Food App: {e}. Retrying in 5 seconds...")
+                logging.error(f"An unexpected WebSocket error occurred: {e}. Retrying in 5 seconds...")
             finally:
                 self.is_connected = False
                 await asyncio.sleep(5)
 
-    async def _receive_loop(self):
-        """
-        Listens for incoming messages from the WebSocket server.
-        """
-        async for message in self.websocket:
-            # Socket.IO messages often start with '42', indicating an event packet.
-            if isinstance(message, str) and message.startswith("42"):
-                try:
-                    payload = json.loads(message[2:])
-                    if isinstance(payload, list) and len(payload) > 1:
-                        event_name = payload[0]
-                        data = payload[1]
-                        if event_name == "drone:command":
-                            # Process the command in a new task to avoid blocking the receive loop.
-                            asyncio.create_task(self.on_command(data))
-                except json.JSONDecodeError:
-                    log.warning(f"Could not decode WebSocket JSON: {message}")
-                except Exception as e:
-                    log.error(f"Error processing WebSocket message: {e}")
-
-    async def emit(self, event: str, data: dict):
-        """
-        Sends (emits) an event to the backend in the Socket.IO format.
-        """
-        if self.websocket and self.is_connected:
+    async def send_message(self, data):
+        """Sends a JSON-formatted message to the backend if connected."""
+        if self.is_connected and self.websocket:
             try:
-                # Format the message as a Socket.IO event packet.
-                message = f'42["{event}",{json.dumps(data)}]'
-                await self.websocket.send(message)
+                await self.websocket.send(json.dumps(data))
             except websockets.exceptions.ConnectionClosed:
-                log.warning("Could not send message, WebSocket connection is closed.")
-                self.is_connected = False
-            except Exception as e:
-                log.error(f"Error sending WebSocket message: {e}")
+                logging.warning("Failed to send message, WebSocket is closed.")
+        else:
+            logging.warning("Cannot send message, WebSocket is not connected.")
 
-    async def close(self):
-        """Closes the WebSocket connection."""
-        if self.websocket and not self.websocket.closed:
-            await self.websocket.close()
-            log.info("WebSocket connection closed.")
+    async def send_telemetry(self, telemetry_data):
+        """Specifically sends telemetry data under the 'drone_telemetry' event."""
+        message = {
+            "type": "drone_telemetry",
+            "payload": telemetry_data
+        }
+        await self.send_message(message)
+
+    async def send_mission_update(self, update_data):
+        """Specifically sends mission updates under the 'mission_update' event."""
+        message = {
+            "type": "mission_update",
+            "payload": update_data
+        }
+        await self.send_message(message)

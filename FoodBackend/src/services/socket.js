@@ -20,53 +20,20 @@ const initSocket = (server) => {
   
   console.log('🔌 Socket.IO server initialized');
 
-  // Namespace for browser clients
-  const browserNs = ioInstance.of('/browser');
+  // Create dedicated namespace for drone bridge connections
+  const droneIo = ioInstance.of("/drone");
+  
+  // Use default namespace for frontend clients
+  const userIo = ioInstance.of("/");
 
-  // Initialize drone socket handler (existing app namespace usage remains)
-  droneSocketHandler = new DroneSocketHandler(ioInstance);
+  // Initialize drone socket handler for the drone namespace
+  droneSocketHandler = new DroneSocketHandler(droneIo, userIo);
   droneSocketHandler.initialize();
-  console.log('🚁 Drone socket handler initialized');
+  console.log('🚁 Drone socket handler initialized for /drone namespace');
 
-  // Accept generic updates (e.g., from Python bridge client) and relay to browser namespace
-  ioInstance.on('connection', (socket) => {
-    console.log('🔌 Client connected:', socket.id);
-
-    // Relay bridge events to browser namespace with frontend-expected names
-    socket.on('drone:status', (data) => {
-      try {
-        browserNs.emit('drone:update', data);
-        browserNs.emit('drone_status_update', {
-          droneId: data?.droneId,
-          status: data?.status,
-          batteryLevel: data?.battery ?? data?.batteryLevel,
-          currentLocation: data?.location ?? (data?.lat != null && data?.lng != null ? { lat: data.lat, lng: data.lng } : undefined),
-          currentAltitude: data?.alt ?? data?.altitude,
-          lastUpdate: Date.now()
-        });
-        browserNs.emit('drone:position_updated', {
-          droneId: data?.droneId,
-          position: {
-            latitude: data?.lat,
-            longitude: data?.lng,
-            altitude: data?.alt,
-            heading: data?.heading,
-            speed: data?.speed
-          }
-        });
-      } catch (e) {
-        console.warn('Socket relay error (drone:status):', e);
-      }
-    });
-
-    socket.on('drone:telemetry', (snapshot) => {
-      try {
-        browserNs.emit('drone_telemetry', snapshot);
-        browserNs.emit('drone:telemetry', snapshot);
-      } catch (e) {
-        console.warn('Socket relay error (drone:telemetry):', e);
-      }
-    });
+  // Handle frontend client connections on default namespace
+  userIo.on('connection', (socket) => {
+    console.log('🔌 Frontend client connected:', socket.id);
 
     // Client may join rooms per droneId or orderId for scoped updates
     socket.on('join_drone', ({ droneId }) => {
@@ -89,7 +56,7 @@ const initSocket = (server) => {
     });
     
     socket.on('disconnect', (reason) => {
-      console.log('🔌 Client disconnected:', socket.id, 'Reason:', reason);
+      console.log('🔌 Frontend client disconnected:', socket.id, 'Reason:', reason);
     });
   });
 

@@ -47,8 +47,8 @@ export default defineConfig({
       // Ensure single React instance and prevent duplicates
       'react': 'react',
       'react-dom': 'react-dom',
-      // Add @ alias for components
-      '@': path.resolve(fileURLToPath(new URL('./src', import.meta.url))),
+      // Add @ alias for src directory - fixes all module resolution errors
+      '@': path.resolve(__dirname, './src'),
     }
   },
 })

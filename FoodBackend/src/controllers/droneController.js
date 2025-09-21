@@ -493,8 +493,19 @@ export const callDroneToShop = asyncHandler(async (req, res) => {
     const sellerId = req.seller._id;
     const { orderId, pickupLocation } = req.body;
     
+    // Enhanced validation
     if (!orderId || !pickupLocation) {
         throw new ApiError('Missing required fields', 400, 'Order ID and pickup location are required');
+    }
+    
+    if (!pickupLocation.lat || !pickupLocation.lng) {
+        throw new ApiError('Invalid pickup location', 400, 'Pickup location must include latitude and longitude');
+    }
+    
+    // Validate coordinates are within reasonable bounds
+    if (pickupLocation.lat < -90 || pickupLocation.lat > 90 || 
+        pickupLocation.lng < -180 || pickupLocation.lng > 180) {
+        throw new ApiError('Invalid coordinates', 400, 'Latitude must be between -90 and 90, longitude between -180 and 180');
     }
     
     // Work directly with DroneOrder by its id
@@ -572,6 +583,136 @@ export const callDroneToShop = asyncHandler(async (req, res) => {
         droneOrder: { _id: droneOrder._id, status: droneOrder.status, droneId: drone.droneId },
         drone: { droneId: drone.droneId, name: drone.name }
     }, 'Drone called to shop successfully'));
+});
+
+// ==================== DRONE MISSION CONTROL ====================
+
+// Start drone mission (Admin/Seller)
+export const startDroneMission = asyncHandler(async (req, res) => {
+    try {
+        const { droneId, waypoints } = req.body;
+        
+        // Enhanced validation
+        if (!droneId) {
+            throw new ApiError('Missing drone ID', 400, 'Drone ID is required');
+        }
+        
+        if (!waypoints || !Array.isArray(waypoints) || waypoints.length === 0) {
+            throw new ApiError('Invalid waypoints', 400, 'Waypoints must be a non-empty array');
+        }
+        
+        // Validate each waypoint
+        for (const [index, waypoint] of waypoints.entries()) {
+            if (!waypoint.lat || !waypoint.lng) {
+                throw new ApiError('Invalid waypoint', 400, `Waypoint ${index + 1} must include latitude and longitude`);
+            }
+            
+            if (waypoint.lat < -90 || waypoint.lat > 90 || 
+                waypoint.lng < -180 || waypoint.lng > 180) {
+                throw new ApiError('Invalid coordinates', 400, `Waypoint ${index + 1} has invalid coordinates`);
+            }
+        }
+        
+        // Find drone
+        const drone = await Drone.findOne({ droneId });
+        if (!drone) {
+            throw new ApiError('Drone not found', 404, 'The specified drone does not exist');
+        }
+        
+        if (!drone.isOperational) {
+            throw new ApiError('Drone not operational', 400, 'The drone is not operational');
+        }
+        
+        // Send mission start command to drone bridge
+        try {
+            const droneBridgeClient = await import('../services/droneBridgeClient.js');
+            const result = await droneBridgeClient.droneBridgeClient.sendCommand('start_mission', droneId, { waypoints });
+            
+            if (!result.success) {
+                throw new ApiError('Drone bridge unreachable', 503, 'Failed to communicate with drone bridge');
+            }
+            
+            // Update drone status
+            await Drone.findOneAndUpdate(
+                { droneId },
+                { 
+                    status: 'in_flight',
+                    currentMission: { waypoints, startedAt: new Date() }
+                }
+            );
+            
+            res.status(200).json(new ApiResponse(200, {
+                droneId,
+                waypoints,
+                status: 'mission_started',
+                message: 'Mission started successfully'
+            }, 'Drone mission started successfully'));
+            
+        } catch (bridgeError) {
+            console.error('Drone bridge communication error:', bridgeError);
+            throw new ApiError('Drone bridge unreachable', 503, 'Cannot connect to drone bridge. Please ensure it is running.');
+        }
+        
+    } catch (error) {
+        console.error('Start mission error:', error);
+        if (error instanceof ApiError) {
+            throw error;
+        }
+        throw new ApiError('Internal server error', 500, 'Failed to start drone mission');
+    }
+});
+
+// Return drone to launch (Admin/Seller)
+export const returnDroneToLaunch = asyncHandler(async (req, res) => {
+    try {
+        const { droneId } = req.body;
+        
+        if (!droneId) {
+            throw new ApiError('Missing drone ID', 400, 'Drone ID is required');
+        }
+        
+        // Find drone
+        const drone = await Drone.findOne({ droneId });
+        if (!drone) {
+            throw new ApiError('Drone not found', 404, 'The specified drone does not exist');
+        }
+        
+        // Send RTL command to drone bridge
+        try {
+            const droneBridgeClient = await import('../services/droneBridgeClient.js');
+            const result = await droneBridgeClient.droneBridgeClient.sendCommand('return_to_launch', droneId, {});
+            
+            if (!result.success) {
+                throw new ApiError('Drone bridge unreachable', 503, 'Failed to communicate with drone bridge');
+            }
+            
+            // Update drone status
+            await Drone.findOneAndUpdate(
+                { droneId },
+                { 
+                    status: 'returning',
+                    currentMission: null
+                }
+            );
+            
+            res.status(200).json(new ApiResponse(200, {
+                droneId,
+                status: 'returning_to_launch',
+                message: 'Return to launch command sent successfully'
+            }, 'Drone returning to launch'));
+            
+        } catch (bridgeError) {
+            console.error('Drone bridge communication error:', bridgeError);
+            throw new ApiError('Drone bridge unreachable', 503, 'Cannot connect to drone bridge. Please ensure it is running.');
+        }
+        
+    } catch (error) {
+        console.error('Return to launch error:', error);
+        if (error instanceof ApiError) {
+            throw error;
+        }
+        throw new ApiError('Internal server error', 500, 'Failed to send return to launch command');
+    }
 });
 
 // ==================== DRONE ASSIGNMENT ====================

@@ -11,23 +11,10 @@ class DroneBridgeClient {
     process.env.DRONE_SIMULATION_MODE = 'false';
     process.env.DRONE_BRIDGE_ENABLE_WS = 'true';
     
-    // Configure URLs based on environment
-    if (this.isTestMode || this.environment === 'test') {
-      // Test environment - use mock/simulation
-      this.baseURL = 'http://localhost:8001'; // Test drone bridge
-      this.wsURL = 'ws://localhost:8002'; // Test WebSocket
-      this.isSimulationMode = true;
-    } else if (this.environment === 'production') {
-      // Production environment - use real drone bridge
-      this.baseURL = process.env.DRONE_BRIDGE_HTTP_URL || 'http://drone-bridge:8001';
-      this.wsURL = process.env.DRONE_BRIDGE_WS_URL || 'ws://drone-bridge:8002';
-      this.isSimulationMode = false;
-    } else {
-      // Development environment
-      this.baseURL = process.env.DRONE_BRIDGE_HTTP_URL || 'http://localhost:8001';
-      this.wsURL = process.env.DRONE_BRIDGE_WS_URL || 'ws://localhost:8002';
-      this.isSimulationMode = process.env.DRONE_SIMULATION_MODE === 'true' || this.environment === 'development';
-    }
+    // Configure URLs based on environment variables
+    this.baseURL = process.env.DRONE_BRIDGE_URL || 'http://localhost:8001';
+    this.wsURL = process.env.DRONE_BRIDGE_WS_URL || 'ws://localhost:8080/drone';
+    this.isSimulationMode = process.env.DRONE_SIMULATION_MODE === 'true';
     
     this.isConnected = false;
     this.wsConnection = null;

@@ -5,8 +5,9 @@ import { Drone } from '../models/droneModel.js';
 import { DroneOrder } from '../models/droneOrderModel.js';
 
 class DroneSocketHandler {
-  constructor(io) {
-    this.io = io;
+  constructor(droneIo, userIo) {
+    this.droneIo = droneIo; // Namespace for drone bridge connections
+    this.userIo = userIo;   // Namespace for frontend clients
     this.connectedClients = new Map();
     this.droneSubscriptions = new Map();
     this.telemetryIntervals = new Map();
@@ -16,12 +17,12 @@ class DroneSocketHandler {
    * Initialize drone socket handler
    */
   initialize() {
-    // Handle drone namespace connections
-    this.io.of('/drone').on('connection', (socket) => {
-      console.log(`Drone client connected: ${socket.id}`);
+    // Handle drone bridge connections on /drone namespace
+    this.droneIo.on('connection', (socket) => {
+      console.log(`🚁 Drone bridge connected: ${socket.id}`);
       
-      this.handleConnection(socket);
-      this.setupEventHandlers(socket);
+      this.handleDroneBridgeConnection(socket);
+      this.setupDroneBridgeEventHandlers(socket);
       
       // Send initial connection confirmation
       socket.emit('drone_service_ready', {
@@ -30,7 +31,26 @@ class DroneSocketHandler {
       });
     });
 
-    console.log('Drone socket handler initialized');
+    console.log('🚁 Drone socket handler initialized for /drone namespace');
+  }
+
+  /**
+   * Handle drone bridge connection
+   * @param {Socket} socket - Socket instance
+   */
+  handleDroneBridgeConnection(socket) {
+    this.connectedClients.set(socket.id, {
+      socket,
+      connectedAt: Date.now(),
+      subscriptions: new Set(),
+      isDroneBridge: true
+    });
+
+    // Handle disconnection
+    socket.on('disconnect', () => {
+      console.log(`🚁 Drone bridge disconnected: ${socket.id}`);
+      this.handleDisconnection(socket.id);
+    });
   }
 
   /**
@@ -65,6 +85,33 @@ class DroneSocketHandler {
       
       this.connectedClients.delete(socketId);
     }
+  }
+
+  /**
+   * Setup drone bridge event handlers
+   * @param {Socket} socket - Socket instance
+   */
+  setupDroneBridgeEventHandlers(socket) {
+    // Handle telemetry data from drone bridge
+    socket.on('drone_telemetry', (data) => {
+      console.log('📡 Received drone telemetry:', data);
+      // Broadcast to all frontend clients
+      this.userIo.emit('drone_telemetry', data);
+    });
+
+    // Handle mission updates from drone bridge
+    socket.on('mission_update', (data) => {
+      console.log('🎯 Received mission update:', data);
+      // Broadcast to all frontend clients
+      this.userIo.emit('mission_update', data);
+    });
+
+    // Handle other drone events
+    socket.on('drone_status', (data) => {
+      console.log('📊 Received drone status:', data);
+      // Broadcast to all frontend clients
+      this.userIo.emit('drone_status', data);
+    });
   }
 
   /**

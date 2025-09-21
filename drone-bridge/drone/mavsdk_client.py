@@ -1,99 +1,52 @@
-# drone/mavsdk_client.py
 import asyncio
 import logging
-import os
 from mavsdk import System
-from mavsdk.mission import MissionItem, MissionPlan
-from typing import List, Optional
+from .communication.ws_client import WebSocketClient
 
-from common.types import Telemetry, FlightSource
-from utils.time import now_ms
-from config.config import DroneMode
+class MAVSDKClient:
+    """
+    Handles the connection to the drone via MAVSDK and streams telemetry.
+    """
+    def __init__(self, mavsdk_server_address: str, ws_client: WebSocketClient):
+        self.drone = System()
+        self.mavsdk_server_address = mavsdk_server_address
+        self.ws_client = ws_client
 
-log = logging.getLogger("mavsdk")
-
-class MavsdkClient:
-    def __init__(self, drone_name: str, system_address: str, mavsdk_port: int):
-        self.drone_name = drone_name
-        self.system_address = system_address
-        self.drone = System(port=mavsdk_port)
-        self.is_connected = False
+    async def connect(self):
+        """Connects to the drone."""
+        logging.info(f"Connecting to drone at {self.mavsdk_server_address}...")
+        await self.drone.connect(system_address=self.mavsdk_server_address)
         
-        # Dynamic configuration
-        self.connection_timeout = float(os.getenv("MAVSDK_CONNECTION_TIMEOUT", "10.0"))
-        self.default_temperature = float(os.getenv("DRONE_DEFAULT_TEMP", "25.0"))
-
-    async def connect(self) -> bool:
-        log.info(f"[{self.drone_name}] 🔌 Connecting to PX4 at: {self.system_address}")
-        try:
-            await self.drone.connect(system_address=self.system_address)
-            log.info(f"[{self.drone_name}] Waiting for drone to connect...")
-            await asyncio.wait_for(self.wait_for_connection(), timeout=self.connection_timeout)
-            self.is_connected = True
-            log.info(f"[{self.drone_name}] ✅ Connected to PX4")
-            
-            async for health in self.drone.telemetry.health():
-                if health.is_gyrometer_calibration_ok and health.is_accelerometer_calibration_ok:
-                     log.info(f"[{self.drone_name}] ✅ PX4 preflight checks passed.")
-                else:
-                     log.warning(f"[{self.drone_name}] ⚠️ PX4 preflight checks have warnings.")
-                break
-            return True
-            
-        except asyncio.TimeoutError:
-            log.warning(f"[{self.drone_name}] ⏰ Timeout: No drone found at {self.system_address}.")
-            return False
-        except Exception as e:
-            log.error(f"[{self.drone_name}] ❌ MAVSDK connection failed: {e}")
-            self.is_connected = False
-            return False
-
-    async def wait_for_connection(self):
+        logging.info("Waiting for drone to connect...")
         async for state in self.drone.core.connection_state():
             if state.is_connected:
-                return
+                logging.info("Drone discovered!")
+                break
+        
+        logging.info("Waiting for drone to have a global position estimate...")
+        async for health in self.drone.telemetry.health():
+            if health.is_global_position_ok and health.is_home_position_ok:
+                logging.info("Global position estimate OK.")
+                break
+        
+        # Start streaming telemetry in the background
+        asyncio.ensure_future(self.stream_telemetry())
 
-    async def get_telemetry(self) -> Optional[Telemetry]:
-        if not self.is_connected: return None
+    async def stream_telemetry(self):
+        """Streams telemetry data from the drone to the WebSocket client."""
+        logging.info("Starting telemetry streaming.")
         try:
-            pos, batt, mode, armed = await asyncio.gather(
-                self.drone.telemetry.position().__anext__(),
-                self.drone.telemetry.battery().__anext__(),
-                self.drone.telemetry.flight_mode().__anext__(),
-                self.drone.telemetry.armed().__anext__()
-            )
-            raw_percent = batt.remaining_percent
-            battery_percent = raw_percent * 100 if raw_percent <= 1.0 else raw_percent
-            return Telemetry(
-                drone_id=self.drone_name,
-                lat=round(pos.latitude_deg, 7), lng=round(pos.longitude_deg, 7),
-                alt=round(pos.relative_altitude_m, 2), battery=round(battery_percent, 1),
-                speed=0.0, heading=0.0, flight_mode=str(mode), armed=armed,
-                source=FlightSource.PX4, timestamp_ms=now_ms(), mode=DroneMode.TESTING.value,
-                voltage=round(batt.voltage_v, 2), current=round(batt.current_battery_a, 2),
-                temperature=self.default_temperature  # MAVSDK doesn't provide temperature, using configurable default
-            )
+            async for position in self.drone.telemetry.position():
+                telemetry_data = {
+                    "latitude_deg": position.latitude_deg,
+                    "longitude_deg": position.longitude_deg,
+                    "absolute_altitude_m": position.absolute_altitude_m,
+                    "relative_altitude_m": position.relative_altitude_m
+                }
+                # Emit telemetry via the WebSocket client
+                await self.ws_client.send_telemetry(telemetry_data)
+                await asyncio.sleep(1)  # Send updates every 1 second
+        except asyncio.CancelledError:
+            logging.info("Telemetry streaming task was cancelled.")
         except Exception as e:
-            log.error(f"[{self.drone_name}] Telemetry error: {e}")
-            self.is_connected = False
-            return None
-
-    async def arm(self): await self.drone.action.arm()
-    async def takeoff(self, altitude: float):
-        await self.drone.action.set_takeoff_altitude(altitude)
-        await self.drone.action.takeoff()
-    async def land(self): await self.drone.action.land()
-    async def rtl(self): await self.drone.action.return_to_launch()
-    async def upload_and_start_mission(self, mission_items: List[MissionItem], rtl_after=True):
-        mission_plan = MissionPlan(mission_items)
-        await self.drone.mission.set_return_to_launch_after_mission(rtl_after)
-        await self.drone.mission.clear_mission()
-        await self.drone.mission.upload_mission(mission_plan)
-        log.info(f"[{self.drone_name}] 🔒 Arming for mission...")
-        await self.arm()
-        log.info(f"[{self.drone_name}] ▶️ Starting mission...")
-        await self.drone.mission.start_mission()
-
-    async def disconnect(self):
-        if self.is_connected:
-            self.is_connected = False
+            logging.error(f"Error in telemetry streaming: {e}")

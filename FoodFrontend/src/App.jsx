@@ -1,7 +1,8 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
+import { io } from 'socket.io-client';
 import { useAuthStore } from './stores/authStore';
-import { useAppStore } from './stores/appStore';
+import { useAppStore, useAppActions } from './stores/appStore';
 import { useNotificationStore } from './stores/notificationStore';
 import { Toaster } from 'react-hot-toast';
 
@@ -17,10 +18,6 @@ import Toast from './components/common/Toast';
 import ErrorBoundary from './components/common/ErrorBoundary';
 
 // Auth Components
-import Login from './components/auth/Login';
-import Register from './components/auth/Register';
-import UserLogin from './components/auth/UserLogin';
-import UserSignup from './components/auth/UserSignup';
 import EnhancedLogin from './components/auth/EnhancedLogin';
 import EnhancedRegister from './components/auth/EnhancedRegister';
 import VerifyEmail from './components/auth/VerifyEmail';
@@ -185,6 +182,7 @@ const UnauthRoute = ({ children }) => {
 const AppContent = () => {
   const { checkAuth, isAuthenticated, isLoading, user } = useAuthStore();
   const { getHomeData } = useAppStore();
+  const { setTelemetry, setMissionState, setDroneConnection, addNotification } = useAppActions();
   const { fetchNotifications, subscribeLive } = useNotificationStore();
   const location = useLocation();
 
@@ -241,6 +239,90 @@ const AppContent = () => {
     }
   }, [isAuthenticated, user, fetchNotifications, subscribeLive]);
 
+  // Global Socket.IO connection for real-time drone data
+  useEffect(() => {
+    console.log('🔌 App.jsx: Setting up global Socket.IO connection');
+    
+    // Connect to the backend Socket.IO server
+    const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:8000', {
+      transports: ['websocket', 'polling'],
+      withCredentials: true
+    });
+
+    // Connection event handlers
+    socket.on('connect', () => {
+      console.log('🔌 Socket.IO connected:', socket.id);
+      setDroneConnection({ isConnected: true, droneId: 'DRONE-001' });
+      addNotification({
+        type: 'success',
+        title: 'Connected',
+        message: 'Real-time connection established'
+      });
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('🔌 Socket.IO disconnected:', reason);
+      setDroneConnection({ isConnected: false });
+      addNotification({
+        type: 'warning',
+        title: 'Disconnected',
+        message: 'Real-time connection lost'
+      });
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('🔌 Socket.IO connection error:', error);
+      setDroneConnection({ isConnected: false });
+      addNotification({
+        type: 'error',
+        title: 'Connection Error',
+        message: 'Failed to establish real-time connection'
+      });
+    });
+
+    // Drone telemetry event handler
+    socket.on('drone_telemetry', (telemetryData) => {
+      console.log('📡 Received drone telemetry:', telemetryData);
+      setTelemetry(telemetryData);
+    });
+
+    // Mission update event handler
+    socket.on('mission_update', (missionData) => {
+      console.log('🎯 Received mission update:', missionData);
+      setMissionState(missionData);
+      
+      // Add notification for important mission events
+      if (missionData.status === 'MISSION_COMPLETE') {
+        addNotification({
+          type: 'success',
+          title: 'Mission Complete',
+          message: missionData.details || 'Drone mission completed successfully'
+        });
+      } else if (missionData.status === 'ERROR') {
+        addNotification({
+          type: 'error',
+          title: 'Mission Error',
+          message: missionData.details || 'An error occurred during the mission'
+        });
+      }
+    });
+
+    // Drone status event handler
+    socket.on('drone_status', (statusData) => {
+      console.log('📊 Received drone status:', statusData);
+      setDroneConnection({ 
+        isConnected: true, 
+        droneId: statusData.droneId || 'DRONE-001' 
+      });
+    });
+
+    // Cleanup function
+    return () => {
+      console.log('🔌 App.jsx: Cleaning up Socket.IO connection');
+      socket.disconnect();
+    };
+  }, [setTelemetry, setMissionState, setDroneConnection, addNotification]);
+
   const currentPath = location.pathname;
   const userRole = user?.role;
   
@@ -273,10 +355,8 @@ const AppContent = () => {
       <main className="flex-1">
         <Routes>
           {/* Unauthenticated-only Routes */}
-          <Route path="/login" element={<UnauthRoute><Login /></UnauthRoute>} />
-          <Route path="/register" element={<UnauthRoute><Register /></UnauthRoute>} />
-          <Route path="/login/user" element={<UnauthRoute><UserLogin /></UnauthRoute>} />
-          <Route path="/signup/user" element={<UnauthRoute><UserSignup /></UnauthRoute>} />
+          <Route path="/login" element={<UnauthRoute><EnhancedLogin /></UnauthRoute>} />
+          <Route path="/register" element={<UnauthRoute><EnhancedRegister /></UnauthRoute>} />
           <Route path="/enhanced-login" element={<UnauthRoute><EnhancedLogin /></UnauthRoute>} />
           <Route path="/enhanced-register" element={<UnauthRoute><EnhancedRegister /></UnauthRoute>} />
           <Route path="/verify-email" element={<UnauthRoute><VerifyEmail /></UnauthRoute>} />
